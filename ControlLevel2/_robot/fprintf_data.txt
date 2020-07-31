@@ -1,0 +1,75 @@
+fprintf(fp, "%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf,\
+%5.5lf,%5.5lf,%5.5lf\n", 
+t_tmp[i], 
+q_cmd_tmp[i][0], q_cmd_tmp[i][1], q_cmd_tmp[i][2], q_cmd_tmp[i][3], q_cmd_tmp[i][4], q_cmd_tmp[i][5], q_cmd_tmp[i][6], q_cmd_tmp[i][7], q_cmd_tmp[i][8], 
+dq_cmd_tmp[i][0], dq_cmd_tmp[i][1], dq_cmd_tmp[i][2], dq_cmd_tmp[i][3], dq_cmd_tmp[i][4], dq_cmd_tmp[i][5], dq_cmd_tmp[i][6], dq_cmd_tmp[i][7], dq_cmd_tmp[i][8], 
+ddq_cmd_tmp[i][0], ddq_cmd_tmp[i][1], ddq_cmd_tmp[i][2], ddq_cmd_tmp[i][3], ddq_cmd_tmp[i][4], ddq_cmd_tmp[i][5], ddq_cmd_tmp[i][6], ddq_cmd_tmp[i][7], ddq_cmd_tmp[i][8], 
+q_res_tmp[i][0], q_res_tmp[i][1], q_res_tmp[i][2], q_res_tmp[i][3], q_res_tmp[i][4], q_res_tmp[i][5], q_res_tmp[i][6], q_res_tmp[i][7], q_res_tmp[i][8], 
+dq_res_tmp[i][0], dq_res_tmp[i][1], dq_res_tmp[i][2], dq_res_tmp[i][3], dq_res_tmp[i][4], dq_res_tmp[i][5], dq_res_tmp[i][6], dq_res_tmp[i][7], dq_res_tmp[i][8], 
+ddq_res_tmp[i][0], ddq_res_tmp[i][1], ddq_res_tmp[i][2], ddq_res_tmp[i][3], ddq_res_tmp[i][4], ddq_res_tmp[i][5], ddq_res_tmp[i][6], ddq_res_tmp[i][7], ddq_res_tmp[i][8], 
+tau_ref_tmp[i][0], tau_ref_tmp[i][1], tau_ref_tmp[i][2], tau_ref_tmp[i][3], tau_ref_tmp[i][4], tau_ref_tmp[i][5], tau_ref_tmp[i][6], tau_ref_tmp[i][7], tau_ref_tmp[i][8], 
+tau_dis_tmp[i][0], tau_dis_tmp[i][1], tau_dis_tmp[i][2], tau_dis_tmp[i][3], tau_dis_tmp[i][4], tau_dis_tmp[i][5], tau_dis_tmp[i][6], tau_dis_tmp[i][7], tau_dis_tmp[i][8], 
+tau_dis_hat_tmp[i][0], tau_dis_hat_tmp[i][1], tau_dis_hat_tmp[i][2], tau_dis_hat_tmp[i][3], tau_dis_hat_tmp[i][4], tau_dis_hat_tmp[i][5], tau_dis_hat_tmp[i][6], tau_dis_hat_tmp[i][7], tau_dis_hat_tmp[i][8], 
+xee_cmd_tmp[i][0], xee_cmd_tmp[i][1], xee_cmd_tmp[i][2], 
+dxee_cmd_tmp[i][0], dxee_cmd_tmp[i][1], dxee_cmd_tmp[i][2], 
+ddxee_cmd_tmp[i][0], ddxee_cmd_tmp[i][1], ddxee_cmd_tmp[i][2], 
+xee_res_tmp[i][0], xee_res_tmp[i][1], xee_res_tmp[i][2], 
+dxee_res_tmp[i][0], dxee_res_tmp[i][1], dxee_res_tmp[i][2], 
+ddxee_res_tmp[i][0], ddxee_res_tmp[i][1], ddxee_res_tmp[i][2], 
+xg_cmd_tmp[i][0], xg_cmd_tmp[i][1], xg_cmd_tmp[i][2], 
+dxg_cmd_tmp[i][0], dxg_cmd_tmp[i][1], dxg_cmd_tmp[i][2], 
+ddxg_cmd_tmp[i][0], ddxg_cmd_tmp[i][1], ddxg_cmd_tmp[i][2], 
+xg_res_tmp[i][0], xg_res_tmp[i][1], xg_res_tmp[i][2], 
+dxg_res_tmp[i][0], dxg_res_tmp[i][1], dxg_res_tmp[i][2], 
+ddxg_res_tmp[i][0], ddxg_res_tmp[i][1], ddxg_res_tmp[i][2], 
+xrb_cmd_tmp[i][0], xrb_cmd_tmp[i][1], xrb_cmd_tmp[i][2], 
+dxrb_cmd_tmp[i][0], dxrb_cmd_tmp[i][1], dxrb_cmd_tmp[i][2], 
+ddxrb_cmd_tmp[i][0], ddxrb_cmd_tmp[i][1], ddxrb_cmd_tmp[i][2], 
+xrb_res_tmp[i][0], xrb_res_tmp[i][1], xrb_res_tmp[i][2], 
+dxrb_res_tmp[i][0], dxrb_res_tmp[i][1], dxrb_res_tmp[i][2], 
+ddxrb_res_tmp[i][0], ddxrb_res_tmp[i][1], ddxrb_res_tmp[i][2], 
+a_cmd_tmp[i][0], a_cmd_tmp[i][1], a_cmd_tmp[i][2], 
+da_cmd_tmp[i][0], da_cmd_tmp[i][1], da_cmd_tmp[i][2], 
+dda_cmd_tmp[i][0], dda_cmd_tmp[i][1], dda_cmd_tmp[i][2], 
+a_res_tmp[i][0], a_res_tmp[i][1], a_res_tmp[i][2], 
+da_res_tmp[i][0], da_res_tmp[i][1], da_res_tmp[i][2], 
+dda_res_tmp[i][0], dda_res_tmp[i][1], dda_res_tmp[i][2], 
+Fee_reac_hat_tmp[i][0], Fee_reac_hat_tmp[i][1], Fee_reac_hat_tmp[i][2], 
+Fa_reac_hat_tmp[i][0], Fa_reac_hat_tmp[i][1], Fa_reac_hat_tmp[i][2], 
+q0_datatec_tmp[i], q0_off_hat_tmp[i], q0_off_dis_tmp[i]
+);
