@@ -1,18 +1,11 @@
 //================================================================================================//
 //                                                                                                //
-// FILE : motor_control_1.ino                                                                     //
-// MEMO : Control 4 motors velocity by PI control                                                 //
+// FILE : identification_1.ino                                                                    //
+// MEMO : Identify back emf, coulomb and dynamic friction coefficient.                            //
+//        Drive each motor constant velocity                                                      //
 //                                                                                                //
 // Update Log                                                                                     //
-//   2020/07/25 : Start this project based on previous project "encoder_3.ino"                    //
-//   2020/07/26 : Added angular velocity and apply LPF                                            //
-//                Roughly control velocity by PI controller                                       //
-//   2020/07/31 : Added the counter error collection process if the encoder counter overflows     //
-//   2020/08/01 : Added stop I control if the control output reach upper limit                    //
-//                Changed PWM frequency to control motor                                          //
-//                Changed pin assign to reduce timer module usage                                 //
-//                                                                                                //
-//                                         Copyright (c) 2020 Kyohei Umemoto All Rights reserved. //
+//   2020/08/01 : Start this project based on previous project "motor_control_1.ino"              //
 //                                                                                                //
 // Pin Assign                                                                                     //
 //    2 - (OC3B) Front Right L298N ENA             3 - (OC3C) Front Left L298N ENB                //
@@ -33,6 +26,8 @@
 //   34 - Right line sensor input                                                                 //
 //                                                                                                //
 //   18 - (TXD1) ESP UART RXD                     19 - (RXD1) ESP UART TXD                        //
+//                                                                                                //
+//                                         Copyright (c) 2020 Kyohei Umemoto All Rights reserved. //
 //                                                                                                //
 //================================================================================================//
 
@@ -82,18 +77,18 @@ const byte LeftMotorDirPin2B = 29;              // Rear Left Motor direction pin
 uint16_t cnt_now[4] = {0, 0, 0, 0};             // Current encoder counter for 4 motors [-]
 uint16_t cnt_pre[4] = {0, 0, 0, 0};             // Previous encoder counter for 4 motors [-]
 int16_t diff_cnt[4] = {0, 0, 0, 0};             // Difference between current and previous counter
-long omega_res_x1000[4] = {0, 0, 0, 0};         // Rotation speed for 4 motors [10^-3 deg/sec]
-long omega_res_x1000_lpf[4] = {0, 0, 0, 0};     // LPF output of Rotation speed for 4 motors [10^-3 deg/sec]
-long omega_res_x1000_lpf_tmp[4] = {0, 0, 0, 0}; // Temporary for LPF
+long omega_res_x10[4] = {0, 0, 0, 0};           // Rotation speed for 4 motors [10^-3 deg/sec]
+long omega_res_x10_lpf[4] = {0, 0, 0, 0};       // LPF output of Rotation speed for 4 motors [10^-3 deg/sec]
+long omega_res_x10_lpf_tmp[4] = {0, 0, 0, 0};   // Temporary for LPF
 long g_omega[4] = {30, 30, 30, 30};             // Cutoff angular frequency [rad/sec]
-long omega_cmd_x1000[4] = {0, 0, 0, 0};         // Rotation speed command [10^-3 deg/sec]
+long omega_cmd_x10[4] = {0, 0, 0, 0};           // Rotation speed command [10^-3 deg/sec]
 long e_omega[4] = {0, 0, 0, 0};                 //
 long int_e_omega[4] = {0, 0, 0, 0};             //
 long Kp[4] = {2, 3, 2, 4};                      //
 long Ki[4] = {20, 20, 2, 20};                   //
 int16_t vout[4] = {0, 0, 0, 0};                 // Voltage output for 4 motor drivers [0 - 255]
 long pi100 = 314;                               // Pi x 100
-long _dt10 = 1000;                              // (sampling_time / 1,000,000)^-1 [10^-1 sec^-1]
+long _dt_x10 = 1000;                            // (sampling_time / 1,000,000)^-1 [10^-1 sec^-1]
 long dt1000 = 10;                               // (sampling_time / 1,000,000) * 1000 [10^-3 sec]
 
 // 周期データ取得用
@@ -101,8 +96,12 @@ long n = 0;                                     // サンプルカウンタ変�
 byte start_bit = 0;                             // サンプリング開始ビット
 long sampling_time = 9999;                      // サンプリング時間[us]
 
+// For Identification
+int id_seq = 0;
+int id_cmd_x10[] = {1000, -1000, 1500, -1500, 2000, -2000, 2500, -2500, 3000, -3000, 3500, -3500, 4000, -4000, 4500, -4500, 5000, -5000};
+
 //================================================================================================//
-// go_advance(int speed )                                                                         //
+// go_advance(int speed) --- drive all motors with the same PWM value                             //
 //   Argument : speed - PWM value                                                                 //
 //   Return   : none                                                                              //
 //================================================================================================//
@@ -114,7 +113,7 @@ void go_advance(int speed) {
 }
 
 //================================================================================================//
-// FR_fwd(int speed), FL                                                                          //
+// FR_fwd(int speed), FR_bck(int speed) --- this is the same for FL, RR, RL motor                 //
 //   Argument : speed - PWM value                                                                 //
 //   Return   : none                                                                              //
 //================================================================================================//
@@ -122,60 +121,55 @@ void FR_fwd(int speed) {
   digitalWrite(RightMotorDirPin1, HIGH);
   digitalWrite(RightMotorDirPin2, LOW);
   OCR3B = speed;
-//  analogWrite(speedPinR, speed);
 }
 
 void FR_bck(int speed) {
   digitalWrite(RightMotorDirPin1, LOW);
   digitalWrite(RightMotorDirPin2, HIGH);
   OCR3B = speed;
-//  analogWrite(speedPinR, speed);
 }
 
 void FL_fwd(int speed) {
   digitalWrite(LeftMotorDirPin1, HIGH);
   digitalWrite(LeftMotorDirPin2, LOW);
   OCR3C = speed;
-//  analogWrite(speedPinL, speed);
 }
 
 void FL_bck(int speed) {
   digitalWrite(LeftMotorDirPin1, LOW);
   digitalWrite(LeftMotorDirPin2, HIGH);
   OCR3C = speed;
-//  analogWrite(speedPinL, speed);
 }
 
 void RR_fwd(int speed) {
   digitalWrite(RightMotorDirPin1B, HIGH);
   digitalWrite(RightMotorDirPin2B, LOW);
   OCR0B = speed;
-//  analogWrite(speedPinRB, speed);
 }
 void RR_bck(int speed) {
   digitalWrite(RightMotorDirPin1B, LOW);
   digitalWrite(RightMotorDirPin2B, HIGH);
   OCR0B = speed;
-//  analogWrite(speedPinRB, speed);
 }
 void RL_fwd(int speed) {
   digitalWrite(LeftMotorDirPin1B, HIGH);
   digitalWrite(LeftMotorDirPin2B, LOW);
   OCR3A = speed;
-//  analogWrite(speedPinLB, speed);
 }
 void RL_bck(int speed) {
   digitalWrite(LeftMotorDirPin1B, LOW);
   digitalWrite(LeftMotorDirPin2B, HIGH);
   OCR3A = speed;
-//  analogWrite(speedPinLB, speed);
 }
 
+//================================================================================================//
+// stop_Stop(void) --- Stop all motors                                                            //
+//================================================================================================//
 void stop_Stop() {
-  analogWrite(speedPinLB, 0);
-  analogWrite(speedPinRB, 0);
-  analogWrite(speedPinL, 0);
-  analogWrite(speedPinR, 0);
+  OCR3B = 0;    // OCR3B -> Front Right motor
+  OCR3C = 0;    // OCR3C -> Front Left motor
+  OCR0B = 0;    // OCR0B -> Rear Right motor
+  OCR3A = 0;    // OCR3A -> Rear Left motor
 }
 
 //================================================================================================//
@@ -370,10 +364,10 @@ ISR(PCINT2_vect) {
 //================================================================================================//
 void print_label(void) {
   // For normal
-    Serial.print("n, cnt_now[0], cnt_now[1], cnt_now[2], cnt_now[3], omega_res_x1000[0], omega_res_x1000[1], omega_res_x1000[2], omega_res_x1000[3], omega_res_x1000_lpf[0], omega_res_x1000_lpf[1], omega_res_x1000_lpf[2], omega_res_x1000_lpf[3], omega_cmd_x1000[0], omega_cmd_x1000[1], omega_cmd_x1000[2], omega_cmd_x1000[3], vout[0], vout[1], vout[2], vout[3]\n");
+  Serial.print("n, cnt_now[0], cnt_now[1], cnt_now[2], cnt_now[3], omega_res_x10[0], omega_res_x10[1], omega_res_x10[2], omega_res_x10[3], omega_res_x10_lpf[0], omega_res_x10_lpf[1], omega_res_x10_lpf[2], omega_res_x10_lpf[3], omega_cmd_x10[0], omega_cmd_x10[1], omega_cmd_x10[2], omega_cmd_x10[3], vout[0], vout[1], vout[2], vout[3]\n");
 
   // For debug
-//  Serial.print("n, cnt_now[0], cnt_now[1], cnt_now[2], cnt_now[3], diff_cnt[0], diff_cnt[1], diff_cnt[2], diff_cnt[3], omega_res_x1000[0], omega_res_x1000[1], omega_res_x1000[2], omega_res_x1000[3], omega_res_x1000_lpf[0], omega_res_x1000_lpf[1], omega_res_x1000_lpf[2], omega_res_x1000_lpf[3], omega_cmd_x1000[0], omega_cmd_x1000[1], omega_cmd_x1000[2], omega_cmd_x1000[3], vout[0], vout[1], vout[2], vout[3]\n");
+  //  Serial.print("n, cnt_now[0], cnt_now[1], cnt_now[2], cnt_now[3], diff_cnt[0], diff_cnt[1], diff_cnt[2], diff_cnt[3], omega_res_x10[0], omega_res_x10[1], omega_res_x10[2], omega_res_x10[3], omega_res_x10_lpf[0], omega_res_x10_lpf[1], omega_res_x10_lpf[2], omega_res_x10_lpf[3], omega_cmd_x10[0], omega_cmd_x10[1], omega_cmd_x10[2], omega_cmd_x10[3], vout[0], vout[1], vout[2], vout[3]\n");
 }
 
 //================================================================================================//
@@ -388,15 +382,15 @@ void print_cnt(void) {
   }
   for (i = 0; i < 4; i++) {
     Serial.print(",");
-    Serial.print(omega_res_x1000[i]);
+    Serial.print(omega_res_x10[i]);
   }
   for (i = 0; i < 4; i++) {
     Serial.print(",");
-    Serial.print(omega_res_x1000_lpf[i]);
+    Serial.print(omega_res_x10_lpf[i]);
   }
   for (i = 0; i < 4; i++) {
     Serial.print(",");
-    Serial.print(omega_cmd_x1000[i]);
+    Serial.print(omega_cmd_x10[i]);
   }
   for (i = 0; i < 4; i++) {
     Serial.print(",");
@@ -436,14 +430,14 @@ void flash() {
 
     // Calculate rotation speed
     for (i = 0; i < 4; i++) {
-      omega_res_x1000[i] = (diff_cnt[i] * 360) * _dt10 / 300;
-      omega_res_x1000_lpf_tmp[i] += (omega_res_x1000[i] - omega_res_x1000_lpf[i]) * dt1000;
-      omega_res_x1000_lpf[i] = omega_res_x1000_lpf_tmp[i] * g_omega[i] / 1000;
+      omega_res_x10[i] = (diff_cnt[i] * 360) * _dt_x10 / 300;
+      omega_res_x10_lpf_tmp[i] += (omega_res_x10[i] - omega_res_x10_lpf[i]) * dt1000;
+      omega_res_x10_lpf[i] = omega_res_x10_lpf_tmp[i] * g_omega[i] / 1000;
     }
 
     // Calculate control output
     for (i = 0; i < 4; i++) {
-      e_omega[i] = omega_cmd_x1000[i] - omega_res_x1000_lpf[i];
+      e_omega[i] = omega_cmd_x10[i] - omega_res_x10_lpf[i];
       if (i == 2) {
         if (-250 < vout[i] && vout[i] < 250)
           int_e_omega[i] += e_omega[i] * dt1000;
@@ -486,34 +480,70 @@ void flash() {
 }
 
 //================================================================================================//
+// Constant velocity identification sequence                                                      //
+//================================================================================================//
+void id_const_vel(void) {
+  delay(1000 * 8);
+}
+
+//================================================================================================//
 // Main Loop                                                                                      //
 //================================================================================================//
 void loop() {
   char a;
-  uint8_t i;
+  uint8_t i, j;
 
   if (Serial.available()) {
     a = char(Serial.read());
 
     if (a == 's') {
       print_label();
-      for (i = 0; i < 4; i++) omega_cmd_x1000[i] = 0;
-      delay(50);
+      for (i = 0; i < 4; i++) omega_cmd_x10[i] = 0;
+      delay(100 * 8);
       start_bit = 1;
+      id_seq = 0;
     } else if (a == 't') {
-      for (i = 0; i < 4; i++) omega_cmd_x1000[i] = 0;
+      for (i = 0; i < 4; i++) omega_cmd_x10[i] = 0;
       start_bit = 0;
       stop_Stop();
     } else if (a == 'u') {
       for (i = 0; i < 4; i++) {
-        omega_cmd_x1000[i] += 1000;
-        if (omega_cmd_x1000[i] > 600000) omega_cmd_x1000[i] = 600000;
+        omega_cmd_x10[i] += 1000;
+        if (omega_cmd_x10[i] > 600000) omega_cmd_x10[i] = 600000;
       }
     } else if (a == 'd') {
       for (i = 0; i < 4; i++) {
-        omega_cmd_x1000[i] -= 1000;
-        if (omega_cmd_x1000[i] < -600000) omega_cmd_x1000[i] = -600000;
+        omega_cmd_x10[i] -= 1000;
+        if (omega_cmd_x10[i] < -600000) omega_cmd_x10[i] = -600000;
       }
     }
+  }
+
+  if (start_bit == 1) {
+    // seq = 0 : wait 3sec to start identification
+    if (id_seq == 0) {
+      delay(3000L * 64);
+      id_seq++;
+    }
+    // seq = 1 : set command to each motor
+    else if (id_seq == 1) {
+      for (i = 0; i < sizeof(id_cmd_x10) / sizeof(id_cmd_x10[0]); i++) {
+        for (j = 0; j < 4; j++) {
+          omega_cmd_x10[j] = id_cmd_x10[i];
+        }
+        delay(5000L * 64);
+      }
+      for (j = 0; j < 4; j++) {
+        omega_cmd_x10[j] = 0;
+      }
+      id_seq++;
+    }
+    // seq = 2 :
+    else if (id_seq == 2) {
+
+    }
+    // seq = 3 :
+    // seq = 4 :
+    // seq = 5 :
   }
 }
