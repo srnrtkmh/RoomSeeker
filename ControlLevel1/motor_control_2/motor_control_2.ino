@@ -1,11 +1,11 @@
 //================================================================================================//
 //                                                                                                //
-// FILE : identification_1.ino                                                                    //
-// MEMO : Identify back emf, coulomb and dynamic friction coefficient.                            //
-//        Drive each motor constant velocity                                                      //
+// FILE : motor_control_2.ino                                                                     //
+// MEMO : Control 4 motors velocity by PI control                                                 //
+//        Added feedforward control with friction compensation                                    //
 //                                                                                                //
 // Update Log                                                                                     //
-//   2020/08/01 : Start this project based on previous project "motor_control_1.ino"              //
+//   2020/08/02 : Start this project based on previous project "motor_control_1.ino"              //
 //                                                                                                //
 // Pin Assign                                                                                     //
 //    2 - (OC3B) Front Right L298N ENA             3 - (OC3C) Front Left L298N ENB                //
@@ -86,28 +86,26 @@ long g_omega[4] = {30, 30, 30, 30};             // Cutoff angular frequency [rad
 long omega_cmd_x10[4] = {0, 0, 0, 0};           // Rotation speed command [10^-3 deg/sec]
 long e_omega[4] = {0, 0, 0, 0};                 // Rotation speed error
 long int_e_omega[4] = {0, 0, 0, 0};             // Integral of rotation speed error
-long Kp[4] = {2, 3, 2, 4};                      // P gain for PI control
-long Ki[4] = {20, 20, 2, 20};                   // I gain for PI control
-int16_t vout[4] = {0, 0, 0, 0};                 // Voltage output for 4 motor drivers [0 - 255]
+long Kp[4] = {3, 3, 1, 3};                      // P gain for PI control
+long Ki[4] = {20, 20, 3, 20};                   // I gain for PI control
+int16_t vout[4] = {0, 0, 0, 0};                 // Voltage output for 4 motor drivers - index 1, 2, 4 : [0 - 1023], index3 : [0 - 255]
 int16_t vout_ff[4] = {0, 0, 0, 0};              // Feedforward control output
 int16_t vout_fb[4] = {0, 0, 0, 0};              // Feedback control output
 int16_t vout_ll[4] = { -1000, -1000, -250, -1000};  // Lower limit of voltage output
 int16_t vout_ul[4] = {1000, 1000, 250, 1000};       // Upper limit of voltage output
 
 // Feedforward parameters
-long Fc_p[4] = {0, 0, 0, 0};                    // Coulonb friction compensation parameter for positive direction
-long Fc_n[4] = {0, 0, 0, 0};                    // Coulonb friction compensation parameter for negative direction
-long Fd_p[4] = {0, 0, 0, 0};                    // Dynamic friction compensation parameter for negative direction
-long Fd_n[4] = {0, 0, 0, 0};                    // Dynamic friction compensation parameter for negative direction
-
-// For Identification
-int id_seq = 0;
-int id_cmd_x10[] = {1000, -1000, 1500, -1500, 2000, -2000, 2500, -2500, 3000, -3000, 3500, -3500, 4000, -4000, 4500, -4500, 5000, -5000};
+//long Fc_p[4] = { 536,  505,  73,  464};         // Coulonb friction compensation parameter for positive direction
+//long Fc_n[4] = {-542, -482, -69, -461};         // Coulonb friction compensation parameter for negative direction
+long Fc_p[4] = { 375,  354,  51,  325};         // Coulonb friction compensation parameter for positive direction
+long Fc_n[4] = {-379, -337, -48, -323};         // Coulonb friction compensation parameter for negative direction
+long Fd_p_x100[4] = {70, 79, 20, 82};           // Dynamic friction compensation parameter for negative direction
+long Fd_n_x100[4] = {73, 77, 24, 74};           // Dynamic friction compensation parameter for negative direction
 
 // Useful constants for calculation
 long sampling_time = 9999;                      // サンプリング時間[us]
 long dt1000 = 10;                               // (sampling_time / 1,000,000) * 1000 [10^-3 sec]
-long _dt_x10 = 1000;                            // (sampling_time / 1,000,000)^-1 [10^-1 sec^-1]
+long _dt_x10 = 1000;                              // (sampling_time / 1,000,000)^-1 [10^-1 sec^-1]
 const long pi100 = 314;                         // Pi x 100
 
 // Sample number
@@ -380,7 +378,7 @@ ISR(PCINT2_vect) {
 //================================================================================================//
 void print_label(void) {
   // For normal
-  Serial.print("n, cnt_now[0], cnt_now[1], cnt_now[2], cnt_now[3], omega_res_x10[0], omega_res_x10[1], omega_res_x10[2], omega_res_x10[3], omega_res_x10_lpf[0], omega_res_x10_lpf[1], omega_res_x10_lpf[2], omega_res_x10_lpf[3], omega_cmd_x10[0], omega_cmd_x10[1], omega_cmd_x10[2], omega_cmd_x10[3], vout[0], vout[1], vout[2], vout[3]\n");
+  Serial.print("n, cnt_now[0], cnt_now[1], cnt_now[2], cnt_now[3], omega_res_x10[0], omega_res_x10[1], omega_res_x10[2], omega_res_x10[3], omega_res_x10_lpf[0], omega_res_x10_lpf[1], omega_res_x10_lpf[2], omega_res_x10_lpf[3], omega_cmd_x10[0], omega_cmd_x10[1], omega_cmd_x10[2], omega_cmd_x10[3], vout[0], vout[1], vout[2], vout[3], vout_ff[0], vout_ff[1], vout_ff[2], vout_ff[3], vout_fb[0], vout_fb[1], vout_fb[2], vout_fb[3]\n");
 
   // For debug
   //  Serial.print("n, cnt_now[0], cnt_now[1], cnt_now[2], cnt_now[3], diff_cnt[0], diff_cnt[1], diff_cnt[2], diff_cnt[3], omega_res_x10[0], omega_res_x10[1], omega_res_x10[2], omega_res_x10[3], omega_res_x10_lpf[0], omega_res_x10_lpf[1], omega_res_x10_lpf[2], omega_res_x10_lpf[3], omega_cmd_x10[0], omega_cmd_x10[1], omega_cmd_x10[2], omega_cmd_x10[3], vout[0], vout[1], vout[2], vout[3]\n");
@@ -411,6 +409,14 @@ void print_cnt(void) {
   for (i = 0; i < 4; i++) {
     Serial.print(",");
     Serial.print(vout[i]);
+  }
+  for (i = 0; i < 4; i++) {
+    Serial.print(",");
+    Serial.print(vout_ff[i]);
+  }
+  for (i = 0; i < 4; i++) {
+    Serial.print(",");
+    Serial.print(vout_fb[i]);
   }
   Serial.print("\n");
 }
@@ -453,15 +459,15 @@ void flash() {
 
     // Calculate control output
     for (i = 0; i < 4; i++) {
+      e_omega[i] = omega_cmd_x10[i] - omega_res_x10_lpf[i];
       // Feedforward control
       if (omega_cmd_x10[i] > 10) {
-        vout_ff[i] = Fc_p[i] + omega_cmd_x10[i] * Fd_p[i];
+        vout_ff[i] = Fc_p[i] + omega_cmd_x10[i] * Fd_p_x100[i] / 1000;
       } else if (omega_cmd_x10[i] < -10) {
-        vout_ff[i] = Fc_n[i] + omega_cmd_x10[i] * Fd_n[i];
+        vout_ff[i] = Fc_n[i] + omega_cmd_x10[i] * Fd_n_x100[i] / 1000;
       }
 
-      // Error calculation. Integral is enabled when control output don't reach each limit
-      e_omega[i] = omega_cmd_x10[i] - omega_res_x10_lpf[i];
+      // Integral is enabled when control output don't reach each limit
       if (vout_ll[i] < vout[i] && vout[i] < vout_ul[i])
         int_e_omega[i] += e_omega[i] * dt1000;
 
@@ -507,7 +513,7 @@ void flash() {
 //================================================================================================//
 void loop() {
   char a;
-  uint8_t i, j;
+  uint8_t i;
 
   if (Serial.available()) {
     a = char(Serial.read());
@@ -515,9 +521,8 @@ void loop() {
     if (a == 's') {
       print_label();
       for (i = 0; i < 4; i++) omega_cmd_x10[i] = 0;
-      delay(100 * 8);
+      delay(50);
       start_bit = 1;
-      id_seq = 0;
     } else if (a == 't') {
       for (i = 0; i < 4; i++) omega_cmd_x10[i] = 0;
       start_bit = 0;
@@ -532,33 +537,6 @@ void loop() {
         omega_cmd_x10[i] -= 1000;
         if (omega_cmd_x10[i] < -600000) omega_cmd_x10[i] = -600000;
       }
-    }
-  }
-
-  if (start_bit == 1) {
-    // seq = 0 : wait 3sec to start identification
-    if (id_seq == 0) {
-      delay(3000L * 128);
-      id_seq++;
-    }
-    // seq = 1 : set command to each motor
-    else if (id_seq == 1) {
-      for (i = 0; i < sizeof(id_cmd_x10) / sizeof(id_cmd_x10[0]); i++) {
-        for (j = 0; j < 4; j++) {
-          omega_cmd_x10[j] = id_cmd_x10[i];
-        }
-        delay(5000L * 128);
-      }
-      for (j = 0; j < 4; j++) {
-        omega_cmd_x10[j] = 0;
-      }
-      stop_Stop();
-      id_seq++;
-      start_bit = 0;
-    }
-    // seq = 2 :
-    else if (id_seq == 2) {
-
     }
   }
 }
