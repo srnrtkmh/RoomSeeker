@@ -11,7 +11,7 @@
 //    2 - (OC3B) Front Right L298N ENA             3 - (OC3C) Front Left L298N ENB                //
 //   22 - Front Right L298N IN1                   23 - Front Right L298N IN2                      //
 //   24 - Front Left L298N IN3                    25 - Front Left L298N IN4                       //
-//    4 - (OC0B) Rear Right L298N ENA              5 - (OC3A) Rear Left L298N ENB                 //
+//    6 - (OC4A) Rear Right L298N ENA              7 - (OC4B) Rear Left L298N ENB                 //
 //   26 - Rear Right L298N IN1                    27 - Rear Right L298N IN2                       //
 //   28 - Rear Left L298N IN3                     29 - Rear Left L298N IN4                        //
 //                                                                                                //
@@ -66,12 +66,12 @@ const byte LeftMotorDirPin1  = 24;              // Front Left Motor direction pi
 const byte LeftMotorDirPin2  = 25;              // Front Left Motor direction pin 2 to Right MODEL-X IN4 (K3)
 
 // Port pin settings for Rear Right motor
-const byte speedPinRB = 4;                      // Rear Wheel PWM pin connect Left MODEL-X ENA
+const byte speedPinRB = 6;                      // Rear Wheel PWM pin connect Left MODEL-X ENA
 const byte RightMotorDirPin1B = 26;             // Rear Right Motor direction pin 1 to Left  MODEL-X IN1 ( K1)
 const byte RightMotorDirPin2B = 27;             // Rear Right Motor direction pin 2 to Left  MODEL-X IN2 ( K1)
 
 // Port pin settings for Rear Left motor
-const byte speedPinLB = 5;                      // Rear Wheel PWM pin connect Left MODEL-X ENB
+const byte speedPinLB = 7;                      // Rear Wheel PWM pin connect Left MODEL-X ENB
 const byte LeftMotorDirPin1B = 28;              // Rear Left Motor direction pin 1 to Left  MODEL-X IN3  (K3)
 const byte LeftMotorDirPin2B = 29;              // Rear Left Motor direction pin 2 to Left  MODEL-X IN4 (K3)
 
@@ -86,19 +86,19 @@ long g_omega[4] = {30, 30, 30, 30};             // Cutoff angular frequency [rad
 long omega_cmd_x10[4] = {0, 0, 0, 0};           // Rotation speed command [10^-3 deg/sec]
 long e_omega[4] = {0, 0, 0, 0};                 // Rotation speed error
 long int_e_omega[4] = {0, 0, 0, 0};             // Integral of rotation speed error
-long Kp[4] = {3, 3, 1, 3};                      // P gain for PI control
-long Ki[4] = {20, 20, 3, 20};                   // I gain for PI control
+long Kp[4] = {3, 3, 3, 3};                      // P gain for PI control
+long Ki[4] = {5, 5, 5, 5};                      // I gain for PI control
 int16_t vout[4] = {0, 0, 0, 0};                 // Voltage output for 4 motor drivers - index 1, 2, 4 : [0 - 1023], index3 : [0 - 255]
 int16_t vout_ff[4] = {0, 0, 0, 0};              // Feedforward control output
 int16_t vout_fb[4] = {0, 0, 0, 0};              // Feedback control output
-int16_t vout_ll[4] = { -1000, -1000, -250, -1000};  // Lower limit of voltage output
-int16_t vout_ul[4] = {1000, 1000, 250, 1000};       // Upper limit of voltage output
+int16_t vout_ll[4] = { -1000, -1000, -1000, -1000};  // Lower limit of voltage output
+int16_t vout_ul[4] = {1000, 1000, 1000, 1000};       // Upper limit of voltage output
 
 // Feedforward parameters
 //long Fc_p[4] = { 536,  505,  73,  464};         // Coulonb friction compensation parameter for positive direction
 //long Fc_n[4] = {-542, -482, -69, -461};         // Coulonb friction compensation parameter for negative direction
-long Fc_p[4] = { 375,  354,  51,  325};         // Coulonb friction compensation parameter for positive direction
-long Fc_n[4] = {-379, -337, -48, -323};         // Coulonb friction compensation parameter for negative direction
+long Fc_p[4] = { 524,  519,  518,  494};        // Coulonb friction compensation parameter for positive direction
+long Fc_n[4] = {-532, -519, -512, -495};        // Coulonb friction compensation parameter for negative direction
 long Fd_p_x100[4] = {70, 79, 20, 82};           // Dynamic friction compensation parameter for negative direction
 long Fd_n_x100[4] = {73, 77, 24, 74};           // Dynamic friction compensation parameter for negative direction
 
@@ -158,22 +158,22 @@ void FL_bck(int speed) {
 void RR_fwd(int speed) {
   digitalWrite(RightMotorDirPin1B, HIGH);
   digitalWrite(RightMotorDirPin2B, LOW);
-  OCR0B = speed;
+  OCR4A = speed;
 }
 void RR_bck(int speed) {
   digitalWrite(RightMotorDirPin1B, LOW);
   digitalWrite(RightMotorDirPin2B, HIGH);
-  OCR0B = speed;
+  OCR4A = speed;
 }
 void RL_fwd(int speed) {
   digitalWrite(LeftMotorDirPin1B, HIGH);
   digitalWrite(LeftMotorDirPin2B, LOW);
-  OCR3A = speed;
+  OCR4B = speed;
 }
 void RL_bck(int speed) {
   digitalWrite(LeftMotorDirPin1B, LOW);
   digitalWrite(LeftMotorDirPin2B, HIGH);
-  OCR3A = speed;
+  OCR4B = speed;
 }
 
 //================================================================================================//
@@ -182,8 +182,8 @@ void RL_bck(int speed) {
 void stop_Stop() {
   OCR3B = 0;    // OCR3B -> Front Right motor
   OCR3C = 0;    // OCR3C -> Front Left motor
-  OCR0B = 0;    // OCR0B -> Rear Right motor
-  OCR3A = 0;    // OCR3A -> Rear Left motor
+  OCR4A = 0;    // OCR4A -> Rear Right motor
+  OCR4B = 0;    // OCR4B -> Rear Left motor
 }
 
 //================================================================================================//
@@ -237,23 +237,25 @@ void setup() {
   PCMSK2 = 0xff;                    // Enables all PORT K Pin Change Interrupt
   sei();
 
-  // Timer 0 PWM output compare settings
-  OCR0A = 0;                        // Clear OCR0A
-  OCR0B = 0;                        // Clear OCR0B
-  TCNT0 = 0;                        // Clear timer 0
-  TIMSK0 = 0x00;                    // None interrupts
-  TCCR0A = 0x23;                    // OC0B is none inverting mode, PWM mode is Fast PWM
-  TCCR0B = 0x02;                    // PWM mode is Fast PWM, Clock is clkI/O/8 (From prescaler)
-
   // Timer 3 PWM output compare settings
-  OCR3A = 0;                        // Clear OCR0A
-  OCR3B = 0;                        // Clear OCR0B
-  OCR3C = 0;                        // Clear OCR0B
-  TCNT3 = 0;                        // Clear timer 0
+  OCR3A = 0;                        // Clear OCR3A
+  OCR3B = 0;                        // Clear OCR3B
+  OCR3C = 0;                        // Clear OCR3B
+  TCNT3 = 0;                        // Clear timer 3
   TIMSK3 = 0x00;                    // None interrupts
   TCCR3A = 0xAB;                    // OC3A, OC3B, OC3C is none inverting mode, PWM mode is Fast PWM 10bit
   TCCR3B = 0x09;                    // PWM mode is Fast PWM, Clock is clkI/O/1024 (From prescaler)
   TCCR3C = 0x00;                    // Force compare match is disabled
+
+  // Timer 4 PWM output compare settings
+  OCR4A = 0;                        // Clear OCR4A
+  OCR4B = 0;                        // Clear OCR4B
+  OCR4C = 0;                        // Clear OCR4B
+  TCNT4 = 0;                        // Clear timer 0
+  TIMSK4 = 0x00;                    // None interrupts
+  TCCR4A = 0xAB;                    // OC4A, OC4B, OC4C is none inverting mode, PWM mode is Fast PWM 10bit
+  TCCR4B = 0x09;                    // PWM mode is Fast PWM, Clock is clkI/O/1024 (From prescaler)
+  TCCR4C = 0x00;                    // Force compare match is disabled
 
   // Timer1割込の設定
   Timer1.initialize(sampling_time); // サンプリングタイムを設定して初期化
