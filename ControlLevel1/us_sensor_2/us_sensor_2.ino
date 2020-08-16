@@ -7,9 +7,10 @@
 //   2020/08/08 : Start this project based on previous project "us_sensor_2.ino"                  //
 //                Detect us distance sensor value by pinchange interrupt                          //
 //                in order to reduce main process cpu power                                       //
+//   2020/08/16 : Pin assign changed                                                              //
 //                                                                                                //
 // Pin Assign                                                                                     //
-//    2 - (OC3B) Front Right L298N ENA             3 - (OC3C) Front Left L298N ENB                //
+//    5 - (OC3A) Front Right L298N ENA             2 - (OC3B) Front Left L298N ENB                //
 //   22 - Front Right L298N IN1                   23 - Front Right L298N IN2                      //
 //   24 - Front Left L298N IN3                    25 - Front Left L298N IN4                       //
 //    6 - (OC4A) Rear Right L298N ENA              7 - (OC4B) Rear Left L298N ENB                 //
@@ -69,12 +70,12 @@ uint16_t fr_a_pre, fr_b_pre, fl_a_pre, fl_b_pre, rr_a_pre, rr_b_pre, rl_a_pre, r
 
 // For Motor - index 0:FR, 1:FL, 2:RR, 3:RL
 // Port pin settings for Front Right motor
-const byte speedPinR = 2;                       // Front Wheel PWM pin connect Right MODEL-X ENA
+const byte speedPinR = 5;                       // Front Wheel PWM pin connect Right MODEL-X ENA
 const byte RightMotorDirPin1  = 22;             // Front Right Motor direction pin 1 to Right MODEL-X IN1  (K1)
 const byte RightMotorDirPin2  = 23;             // Front Right Motor direction pin 2 to Right MODEL-X IN2   (K1)
 
 // Port pin settings for Front Left motor
-const byte speedPinL = 3;                       // Front Wheel PWM pin connect Right MODEL-X ENA
+const byte speedPinL = 2;                       // Front Wheel PWM pin connect Right MODEL-X ENA
 const byte LeftMotorDirPin1  = 24;              // Front Left Motor direction pin 1 to Right MODEL-X IN3 (K3)
 const byte LeftMotorDirPin2  = 25;              // Front Left Motor direction pin 2 to Right MODEL-X IN4 (K3)
 
@@ -134,7 +135,7 @@ uint8_t head_index_max = 17;
 uint8_t head_index_min = 0;
 uint8_t head_b = 0;
 uint8_t head_a = 10;
-unsigned long head_servo_delay = 500000;
+unsigned long head_servo_delay = 100000;
 unsigned long head_us_time_out = 30000;
 uint8_t head_srv_dir = 0;
 unsigned long head_time_1 = 0, head_time_2 = 0;

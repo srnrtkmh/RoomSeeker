@@ -1,15 +1,14 @@
 //================================================================================================//
 //                                                                                                //
-// FILE : auto_run_1.ino                                                                          //
-// MEMO : get ultra sonic distance sensor value in front of the robot                             //
+// FILE : auto_run_2.ino                                                                          //
+// MEMO : Robot runs avoiding obstacles in front of the robot by detecting obstacle               //
+//        using us sensor. US sensor direction is moved by RC servo to change detection direction.//
+//        US sensor detection program is based on "us_sensor_3.ino" project.                      //
+//        Robot mecanum wheels are drived indivisually using PI control of angular velocity       //
 //                                                                                                //
 // Update Log                                                                                     //
-//   2020/08/11 : Start this project based on previous project "us_sensor_2.ino"                  //
-//                Pin assign changed to adapt motor control library                               //
-//                motor control object added                                                      //
-//                rotary encoder object added                                                     //
-//                acceleration object added                                                       //
-//                setting.h　added                                                                //
+//   2020/08/11 : Start this project based on previous project "auto_run_1.ino"                   //
+//                US sensor detectiono process is changed based on "us_sensor_3.ino"              //
 //                                                                                                //
 // Pin Assign                                                                                     //
 //    5 - (OC3A) Front Right L298N ENA             2 - (OC3B) Front Left L298N ENB                //
@@ -137,27 +136,35 @@ const uint8_t SERVO_PIN = 31; //servo connect
 const uint8_t Echo_PIN  = 14; // Ultrasonic Echo pin connect
 const uint8_t Trig_PIN  = 30; // Ultrasonic Trig pin connect
 Servo head;
-String str;
-char str2[128];
-uint8_t HEAD_1_WAIT_NEXT = 1;
-uint8_t HEAD_2_WAIT_SERVO_MOVE = 2;
-uint8_t HEAD_3_SHOT_US = 3;
-uint8_t HEAD_4_WAIT_US_REF = 4;
-uint8_t HEAD_5_DIST_CALC = 5;
-uint8_t head_status = HEAD_1_WAIT_NEXT;
-uint8_t head_angle = 90;
+const uint16_t SERVO_MAX = 2300;
+const uint16_t SERVO_MIN = 430;
+const uint8_t HEAD_DIR_POS = 0;
+const uint8_t HEAD_DIR_NEG = 1;
+uint8_t head_dir = HEAD_DIR_POS;
+const uint16_t HEAD_CNT_MAX = 100;
+const uint16_t HEAD_CNT_MIN = 0;
+const uint16_t HEAD_CNT_INIT = 50;
+uint16_t head_cnt = 0;
+uint16_t us_tx[19] = {0, 6, 11, 17, 22, 28, 33, 39, 44, 50, 56, 61, 67, 72, 78, 83, 89, 94, 100};
+unsigned long us_dist[19] = {0};
+unsigned long us_time_1 = 0, us_time_2 = 0;
+unsigned long us_time_diff = 0;
+uint8_t us_reload_flag = 0;
+uint16_t us_reload_cnt = 0;
+const uint8_t US_1_WAIT_NEXT = 1;
+const uint8_t US_2_WAIT_REF = 1;
+uint8_t us_status = US_1_WAIT_NEXT;
+uint8_t us_ref_cnt = 0;
+const uint8_t US_REF_CNT_MAX = 2;
 uint8_t head_index = 9;
-uint8_t head_index_max = 17;
-uint8_t head_index_min = 0;
-uint8_t head_b = 0;
-uint8_t head_a = 10;
-unsigned long head_servo_delay = 100000;
-unsigned long head_us_time_out = 30000;
-uint8_t head_srv_dir = 0;
-unsigned long head_time_1 = 0, head_time_2 = 0;
-unsigned long echo_dist_val = 0;
-int dist[200] = {0};
-int us_start_bit = 0;
+const uint8_t HEAD_INDEX_MAX = 18;
+const uint8_t HEAD_INDEX_MIN = 0;
+
+// Using in external switches
+const uint8_t EXT_SWT1 = 54;
+const uint8_t EXT_SWT2 = 55;
+
+// Using in obstacle avoidance method
 int obstacle_status = 0;
 
 // Useful constants for calculation
@@ -172,16 +179,14 @@ long n = 0;                                     // サンプルカウンタ変�
 byte start_bit = 0;                             // サンプリング開始ビット
 
 // For WiFi
-/*char ssid[] = "HG8045-579E-bg"; // replace ****** with your network SSID (name)
-  char pass[] = "mgrvy6kr";       // replace ****** with your network password
-  int status = WL_IDLE_STATUS;    //
-  char packetBuffer[5];           // use a ring buffer to increase speed and reduce memory allocation
-
-  WiFiEspUDP Udp;                 //
-  unsigned int localPort = 8890;  // local port to listen on
-  static const char *udpReturnAddr = "192.168.1.100";
-  static const int udpReturnPort = 8890;
-*/
+char ssid[] = "HG8045-579E-bg"; // replace ****** with your network SSID (name)
+char pass[] = "mgrvy6kr";       // replace ****** with your network password
+int status = WL_IDLE_STATUS;    //
+char packetBuffer[5];           // use a ring buffer to increase speed and reduce memory allocation
+WiFiEspUDP Udp;                 //
+unsigned int localPort = 8890;  // local port to listen on
+static const char *udpReturnAddr = "192.168.1.100";
+static const int udpReturnPort = 8890;
 
 //================================================================================================//
 // Serial print functions to transmit debug and log data                                          //
@@ -239,6 +244,10 @@ void gpio_init() {
   // HC-SR04 setting
   pinMode(Trig_PIN, OUTPUT);
   pinMode(Echo_PIN, INPUT);
+
+  // External switche setting
+  pinMode(EXT_SWT1, INPUT_PULLUP);
+  pinMode(EXT_SWT2, INPUT_PULLUP);
 }
 
 //================================================================================================//
@@ -268,36 +277,36 @@ void setup() {
   Timer1.attachInterrupt(flash);    // 割り込み関数を登録
 
   // Setup WiFi
-  /*  Serial1.begin(115200);
-    Serial1.write("AT+UART_DEF=9600,8,1,0,0\r\n");
-    delay(200);
-    Serial1.write("AT+RST\r\n");
-    delay(200);
-    Serial1.begin(9600);  // initialize serial for ESP module
-    WiFi.init(&Serial1);    // initialize ESP module
+  Serial1.begin(115200);
+  Serial1.write("AT+UART_DEF=9600,8,1,0,0\r\n");
+  delay(200);
+  Serial1.write("AT+RST\r\n");
+  delay(200);
+  Serial1.begin(9600);  // initialize serial for ESP module
+  WiFi.init(&Serial1);    // initialize ESP module
 
-    // check for the presence of the shield
-    if (WiFi.status() == WL_NO_SHIELD) {
-      Serial.println("WiFi shield not present");
-      // don't continue
-      while (true);
-    }
+  // check for the presence of the shield
+  if (WiFi.status() == WL_NO_SHIELD) {
+    Serial.println("WiFi shield not present");
+    // don't continue
+    while (true);
+  }
 
-    // attempt to connect to WiFi network
-    while (status != WL_CONNECTED) {
-      Serial.print("Attempting to connect to WPA SSID: ");
-      Serial.println(ssid);
-      // Connect to WPA/WPA2 network
-      status = WiFi.begin(ssid, pass);
-    }
+  // attempt to connect to WiFi network
+  while (status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to WPA SSID: ");
+    Serial.println(ssid);
+    // Connect to WPA/WPA2 network
+    status = WiFi.begin(ssid, pass);
+  }
 
-    Serial.println("You're connected to the network");
-    printWifiStatus();
-    Udp.begin(localPort);
+  Serial.println("You're connected to the network");
+  printWifiStatus();
+  Udp.begin(localPort);
 
-    Serial.print("Listening on port ");
-    Serial.println(localPort);
-  */
+  Serial.print("Listening on port ");
+  Serial.println(localPort);
+
   // Initialize us sensor servo
   digitalWrite(Trig_PIN, LOW);
   head.attach(SERVO_PIN);
@@ -312,11 +321,17 @@ void setup() {
 ISR(PCINT1_vect) {
   interrupts();
   if (digitalRead(Echo_PIN) == LOW) {
-    head_time_2 = micros();
-    head_status = HEAD_5_DIST_CALC;
-#ifdef DEBUG
-    print_us();
-#endif
+    us_time_2 = micros();
+    cli();
+    PCICR &= ~(1 << 1);             // Disable PORT J Pin Change Interrupt
+    PCMSK1 &= ~(1 << 2);            // Disable PJ1(PCINT10) Pin Change Interrupt
+    sei();
+    us_time_diff = us_time_2 - us_time_1;
+    us_dist[head_index] = us_time_diff * 1742 / 10000 - 381;
+    us_reload_cnt++;
+    if (head_index == HEAD_INDEX_MIN || head_index == HEAD_INDEX_MAX) {
+      us_reload_flag = 1;
+    }
   }
 }
 
@@ -344,46 +359,70 @@ void flash() {
   long tmp;
   interrupts();                   // 次回の割り込みを許可(これがないと次のタイマ割り込み周期がずれる)
 
-  // Execute motor control if start_bit is 1
   if (start_bit == 1) {
-    // Acceleration sequence
-    // 0. 停止
+    // 1. Servo command sequence
+    head.writeMicroseconds(map(head_cnt, HEAD_CNT_MIN, HEAD_CNT_MAX, SERVO_MIN, SERVO_MAX));
+    if (head_dir == HEAD_DIR_POS) {
+      if (++head_cnt == HEAD_CNT_MAX) head_dir = HEAD_DIR_NEG;
+    }
+    else if (head_dir == HEAD_DIR_NEG) {
+      if (--head_cnt == HEAD_CNT_MIN) head_dir = HEAD_DIR_POS;
+    }
+
+    // 2. Ultrasonic sequence
+    if (us_status == US_1_WAIT_NEXT) {
+      for (i = 0; i <= HEAD_INDEX_MAX; i++) {
+        if (head_cnt == us_tx[i]) {
+          head_index = i;
+          us_ref_cnt = 0;
+          digitalWrite(Trig_PIN, LOW);
+          delayMicroseconds(5);
+          digitalWrite(Trig_PIN, HIGH);
+          delayMicroseconds(10);
+          digitalWrite(Trig_PIN, LOW);
+          us_time_1 = micros();
+          cli();
+          PCICR |= (1 << 1);                // Enables PORT J Pin Change Interrupt
+          PCMSK1 |= (1 << 2);               // Enables PJ1(PCINT10) Pin Change Interrupt
+          sei();
+          break;
+        }
+      }
+    }
+    else if (us_status == US_2_WAIT_REF) {
+      if (++us_ref_cnt == US_REF_CNT_MAX) {
+        us_ref_cnt = 0;
+        cli();
+        PCICR &= ~(1 << 1);             // Disable PORT J Pin Change Interrupt
+        PCMSK1 &= ~(1 << 2);            // Disable PJ1(PCINT10) Pin Change Interrupt
+        sei();
+      }
+    }
+
+    // 3. Acceleration sequence
+    // (0) 停止
     if (acc_stat == 0) {
-      for (i = 0; i < 4; i++) {
-        omega_cmd_x10[i] = 0;
-      }
-      if (obstacle_status <= 1) {
-        test_wait_cnt++;
-      } else {
-        test_wait_cnt = 0;
-      }
-      
+      for (i = 0; i < 4; i++) omega_cmd_x10[i] = 0;
+      if (obstacle_status <= 1) test_wait_cnt++;
+      else                      test_wait_cnt = 0;
+
       if (test_wait_cnt >= 100) {
         test_wait_cnt = 0;
         acc_stat = 1;
       }
     }
-    // 1. 加速度テーブルによって加速
+    // (1) 加速度テーブルによって加速
     else if (acc_stat == 1) {
-      for (i = 0; i < 4; i++) {
-        omega_cmd_x10[i] = acc1.get_cmd(acc1.n++);
-      }
+      for (i = 0; i < 4; i++) omega_cmd_x10[i] = acc1.get_cmd(acc1.n++);
       if (acc1.n >= acc1.acc_num) {
         acc1.clear();
         acc_stat = 2;
       }
     }
-    // 2. 定常速度運転
+    // (2) 定常速度運転
     else if (acc_stat == 2) {
-      // test_wait_cnt++;
-      // if (test_wait_cnt >= 200) {
-      //   test_wait_cnt = 0;
-      //   acc_stat = 3;
-      // }
       if (obstacle_status == 0) {
-        for (i = 0; i < 4; i++) {
-          omega_cmd_x10[i] = omega_cmd_const_x10;
-        }
+        for (i = 0; i < 4; i++) omega_cmd_x10[i] = omega_cmd_const_x10;
       }
       else if (obstacle_status == 1) {
         omega_cmd_x10[FR_ENC] = omega_cmd_const_x10 - 1000;
@@ -407,17 +446,16 @@ void flash() {
         acc_stat = 3;
       }
     }
-    // 3. 減速度テーブルによって減速
+    // (3) 減速度テーブルによって減速
     else if (acc_stat == 3) {
-      for (i = 0; i < 4; i++) {
-        omega_cmd_x10[i] = acc2.get_cmd(acc2.n++);
-      }
+      for (i = 0; i < 4; i++) omega_cmd_x10[i] = acc2.get_cmd(acc2.n++);
       if (acc2.n >= acc2.acc_num) {
         acc2.clear();
         acc_stat = 0;
       }
     }
 
+    // 4. Motor control
     // Update encoder counter value
     for (i = 0; i < 4; i++) cnt_pre[i] = cnt_now[i];
     cnt_now[0] = cnt_dir[0] * enc.read_cnt(FR_ENC);
@@ -465,9 +503,18 @@ void flash() {
       else if (vout[i] < vout_ll[i]) vout[i] = vout_ll[i];
     }
 
+    // 5. For debug or logging
 #ifdef LOG
     print_log();                  // Output log data to upper system
 #endif
+#ifdef DEBUG
+    if (us_reload_flag == 1) {
+      us_reload_flag = 0;
+      us_reload_cnt = 0;
+      print_us_loop();
+    }
+#endif
+
     if (++n > 999999) n = 0;      // Increment sample counter
   }
   // Control output is zero if start_bit is not 1
@@ -475,7 +522,7 @@ void flash() {
     for (i = 0; i < 4; i++) vout[i] = 0;
   }
 
-  // Apply control output to the motor
+  // 6. Apply control output to the motor
   front_motor.writeA(vout[0]);
   front_motor.writeB(vout[1]);
   rear_motor.writeA(vout[2]);
@@ -489,6 +536,26 @@ void loop() {
   char a;
   uint8_t i;
 
+  // 1. Read external switches and change modes
+  if (digitalRead(EXT_SWT1) == LOW) {
+    start_bit = 0;
+    for (i = 0; i < 4; i++) omega_cmd_x10[i] = 0;
+    stop_Stop();
+    head_cnt = HEAD_CNT_INIT;
+    head.writeMicroseconds(map(head_cnt, HEAD_CNT_MIN, HEAD_CNT_MAX, SERVO_MIN, SERVO_MAX));
+  }
+  else if (digitalRead(EXT_SWT2) == LOW) {
+#ifdef LOG
+    print_label();
+#endif
+    for (i = 0; i < 4; i++) omega_cmd_x10[i] = 0;
+    head_cnt = HEAD_CNT_INIT;
+    head.writeMicroseconds(map(head_cnt, HEAD_CNT_MIN, HEAD_CNT_MAX, SERVO_MIN, SERVO_MAX));
+    delay(50);
+    start_bit = 1;
+  }
+
+  // 2. Serial command processing
   if (Serial.available()) {
     a = char(Serial.read());
 
@@ -497,133 +564,74 @@ void loop() {
       print_label();
 #endif
       for (i = 0; i < 4; i++) omega_cmd_x10[i] = 0;
+      head_cnt = HEAD_CNT_INIT;
+      head.writeMicroseconds(map(head_cnt, HEAD_CNT_MIN, HEAD_CNT_MAX, SERVO_MIN, SERVO_MAX));
       delay(50);
       start_bit = 1;
-      us_start_bit = 1;
-    } else if (a == 't') {
-      for (i = 0; i < 4; i++) omega_cmd_x10[i] = 0;
+    }
+    else if (a == 't') {
       start_bit = 0;
-      us_start_bit = 0;
+      for (i = 0; i < 4; i++) omega_cmd_x10[i] = 0;
       stop_Stop();
-    } else if (a == 'u') {
+      head_cnt = HEAD_CNT_INIT;
+      head.writeMicroseconds(map(head_cnt, HEAD_CNT_MIN, HEAD_CNT_MAX, SERVO_MIN, SERVO_MAX));
+    }
+    else if (a == 'u') {
       for (i = 0; i < 4; i++) {
         omega_cmd_x10[i] += 1000;
         if (omega_cmd_x10[i] > 600000) omega_cmd_x10[i] = 600000;
       }
-    } else if (a == 'd') {
+    }
+    else if (a == 'd') {
       for (i = 0; i < 4; i++) {
         omega_cmd_x10[i] -= 1000;
         if (omega_cmd_x10[i] < -600000) omega_cmd_x10[i] = -600000;
       }
-    } else if (a == 'k') {
-      us_start_bit = 1;
+    }
+    else if (a == 'k') {
     }
   }
 
-  /*  int packetSize = Udp.parsePacket();
-    if (packetSize) {                               // if you get a client,
-      Serial.print("Received packet of size ");
-      Serial.println(packetSize);
-      int len = Udp.read(packetBuffer, 255);
-      if (len > 0) {
-        packetBuffer[len] = 0;
-      }
-      char c = packetBuffer[0];
-      switch (c) {
-        case 'A': Serial.print("A received\n"); break;
-        case 'B':
-          Udp.beginPacket(udpReturnAddr, udpReturnPort);
-          Udp.write("ok");
-          Udp.endPacket();
+  // 3. Main behaviour processing
+  obstacle_status = 0;
+  for (i = 0; i <= HEAD_INDEX_MAX; i++) {
+    if (6 <= i && i <= 11) {
+      if (us_dist[i] <= 150) {
+        obstacle_status = 4;
+      } else if (us_dist[i] <= 250) {
+        if (obstacle_status < 3) obstacle_status = 3;
+      } else if (us_dist[i] <= 400) {
+        if (obstacle_status < 2) obstacle_status = 2;
+      } else if (us_dist[i] <= 600) {
+        if (obstacle_status < 1) obstacle_status = 1;
       }
     }
-  */
-  // 1. 次に測定するヘッドの角度に設定
-  if (us_start_bit == 1) {
-    if (head_status == HEAD_1_WAIT_NEXT) {
-      if (head_srv_dir == 0) {
-        head_index++;
-      } else if (head_srv_dir == 1) {
-        head_index--;
-      }
-      head_angle = head_index * head_a + head_b;
-      head.write(head_angle);
-      head_time_1 = micros();
-      head_status = HEAD_2_WAIT_SERVO_MOVE;
-    }
-    // 2. 次に測定するヘッド位置に動くまで決め打ち時間分待つ
-    else if (head_status == HEAD_2_WAIT_SERVO_MOVE) {
-      head_time_2 = micros();
-      if (head_time_2 - head_time_1 >= head_servo_delay) {
-        head_status = HEAD_3_SHOT_US;
-      }
-    }
-    // 3. 超音波を発射する　→　次の処理はピンチェンジインタラプトの割り込み処理
-    else if (head_status == HEAD_3_SHOT_US) {
-      digitalWrite(Trig_PIN, LOW);
-      delayMicroseconds(5);
-      digitalWrite(Trig_PIN, HIGH);
-      delayMicroseconds(15);
-      digitalWrite(Trig_PIN, LOW);
-      head_time_1 = micros();
-      cli();
-      PCICR |= (1 << 1);                // Enables PORT J Pin Change Interrupt
-      PCMSK1 |= (1 << 2);               // Enables PJ1(PCINT10) Pin Change Interrupt
-      sei();
-      head_status = HEAD_4_WAIT_US_REF;
-    }
-    // 4. 超音波の反射を待つ
-    else if (head_status == HEAD_4_WAIT_US_REF) {
-      head_time_2 = micros();
-      if (head_time_2 - head_time_1 >= head_us_time_out) {
-        cli();
-        PCICR &= ~(1 << 1);             // Enables PORT K Pin Change Interrupt
-        PCMSK1 &= ~(1 << 2);            // Disables all PORT J Pin Change Interrupt
-        sei();
-        head_status = HEAD_5_DIST_CALC;
-      }
-    }
-    // 5. 超音波の反射時間を取得できたら時間差を距離に換算する
-    else if (head_status == HEAD_5_DIST_CALC) {
-      echo_dist_val = head_time_2 - head_time_1;    // time difference between transmit & receive us
-      dist[head_index] = echo_dist_val * 1742 / 10000 - 381;
-      if (head_index <= head_index_min || head_index_max <= head_index) {
-        if (head_index >= head_index_max)      head_srv_dir = 1;
-        else if (head_index <= head_index_min) head_srv_dir = 0;
-        str = "";
-        for (i = 0; i <= head_index_max; i++) {
-          str += String(dist[i], DEC) + ",";
-        }
-        str.toCharArray(str2, sizeof(str2));
-        Serial.print(str2);
-        Serial.print(obstacle_status);
-        Serial.print(",");
-        Serial.print(acc_stat);
-        Serial.print("\n");
-        /*    Udp.beginPacket(udpReturnAddr, udpReturnPort);
-            Udp.write(str2);
-            Udp.endPacket();
-        */
-      }
-      head_status = HEAD_1_WAIT_NEXT;
+  }
 
-      // Test
-      noInterrupts();
-      obstacle_status = 0;
-      for (i = 0; i <= head_index_max; i++) {
-        if (6 <= i && i <= 11) {
-          if (dist[i] <= 150) {
-            obstacle_status = 4;
-          } else if (dist[i] <= 250) {
-            if (obstacle_status < 3) obstacle_status = 3;
-          } else if (dist[i] <= 400) {
-            if (obstacle_status < 2) obstacle_status = 2;
-          } else if (dist[i] <= 600) {
-            if (obstacle_status < 1) obstacle_status = 1;
-          }
-        }
+  // 4. Data transmission
+  String str;
+  char str_char[128];
+  static unsigned long data_tx_n = 0;
+  static unsigned long data_tx_time_pre, data_tx_time_now;
+  if (start_bit == 1) {
+    data_tx_time_pre = data_tx_time_now;
+    data_tx_time_now = millis();
+    if (data_tx_time_now - data_tx_time_pre >= 100) {
+      str = "";
+      str += String(data_tx_n, DEC) + ",";
+      for (i = 0; i <= HEAD_INDEX_MAX; i++) {
+        str += String(us_dist[i], DEC) + ",";
       }
-      interrupts();
+      str += String(obstacle_status, DEC);
+      str += "\n";
+      str.toCharArray(str_char, sizeof(str_char));
+      Udp.beginPacket(udpReturnAddr, udpReturnPort);
+      Udp.write(str_char);
+      Udp.endPacket();
+      data_tx_n++;
+      if (data_tx_n > 999999) data_tx_n = 0;
     }
+  } else {
+    data_tx_n = 0;
   }
 }
