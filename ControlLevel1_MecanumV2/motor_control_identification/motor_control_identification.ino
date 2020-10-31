@@ -1,16 +1,12 @@
 //================================================================================================//
 //                                                                                                //
-// FILE : motor_control_with_PS2.ino                                                              //
+// FILE : motor_control_identification.ino                                                        //
 // MEMO : Control 4 motors velocity by PI control                                                 //
-//        Added feedforward control with friction compensation                                    //
+//        and drive each motor with constant velocity to get identification data                  //
 //                                                                                                //
 // Update Log                                                                                     //
-//   2020/09/19 : Start this project based on previous project "motor_control.ino"                //
-//                Add workspace command                                                           //
-//   2020/09/20 : Reduce memory usage usin F Macro                                                //
-//                Optimise PS2 communication delaying                                             //
-//                Change encoder reading method quad multiply to dual multiply                    //
-//   2020/10/31 : Changed friction conpensation parameter got from identification test            //
+//   2020/10/31 : Start this project based on previous project "motor_control_with_PS2.ino"       //
+//                Added constant velocity command pattern from "identification_1.ino"             //
 //                                                                                                //
 // Pin Assign                                                                                     //
 //    3 - Front Right encoder phase A              2 - Front Right encoder phase B                //
@@ -137,7 +133,7 @@ uint8_t ps2_ctrl = 0;                               // This flag shows command f
 PS2X ps2x;                                          // create PS2 Controller Object
 
 // Reset func
-void (* resetFunc) (void) = 0;                      // 
+void (* resetFunc) (void) = 0;                      //
 
 //================================================================================================//
 // FR_fwd(int speed), FR_bck(int speed) --- this is the same for FL, RR, RL motor                 //
@@ -310,8 +306,8 @@ void print_data(void) {
   Serial.print(str);
   sprintf(str, "%+5d,%+5d,%+5d,%+5d,", (int16_t)omega_res_x10[0], (int16_t)omega_res_x10[1], (int16_t)omega_res_x10[2], (int16_t)omega_res_x10[3]);
   Serial.print(str);
-  // sprintf(str, "%+5d,%+5d,%+5d,%+5d,", (int16_t)omega_res_x10_lpf[0], (int16_t)omega_res_x10_lpf[1], (int16_t)omega_res_x10_lpf[2], (int16_t)omega_res_x10_lpf[3]);
-  // Serial.print(str);
+  sprintf(str, "%+5d,%+5d,%+5d,%+5d,", (int16_t)omega_res_x10_lpf[0], (int16_t)omega_res_x10_lpf[1], (int16_t)omega_res_x10_lpf[2], (int16_t)omega_res_x10_lpf[3]);
+  Serial.print(str);
   sprintf(str, "%+5d,%+5d,%+5d,%+5d,", (int16_t)omega_cmd_x10[0], (int16_t)omega_cmd_x10[1], (int16_t)omega_cmd_x10[2], (int16_t)omega_cmd_x10[3]);
   Serial.print(str);
   sprintf(str, "%+5d,%+5d,%+5d,%+5d", (int16_t)vout[0], (int16_t)vout[1], (int16_t)vout[2], (int16_t)vout[3]);
@@ -496,7 +492,7 @@ void setup() {
 //================================================================================================//
 void loop() {
   char a;
-  uint8_t i;
+  uint8_t i, j;
 
   // Reading serial communication command --------------------------------------------------------//
   while (Serial.available()) {
@@ -719,6 +715,37 @@ void loop() {
       workspace_ctrl = 0;
       ps2_ctrl = 0;
       stop_all();
+    }
+  }
+
+  // Identification velocity input sequence --------------------------------------------------//
+  // For Identification
+  static int id_seq = 0;
+  static int id_cmd_x10[] = {1000, -1000, 1500, -1500, 2000, -2000, 2500, -2500, 3000, -3000, 3500, -3500, 4000, -4000, 4500, -4500, 5000, -5000};
+  if (start_bit == 1) {
+    // seq = 0 : wait 3sec to start identification
+    if (id_seq == 0) {
+      delay(3000);
+      id_seq++;
+    }
+    // seq = 1 : set command to each motor
+    else if (id_seq == 1) {
+      for (i = 0; i < sizeof(id_cmd_x10) / sizeof(id_cmd_x10[0]); i++) {
+        for (j = 0; j < 4; j++) {
+          omega_cmd_x10[j] = id_cmd_x10[i];
+        }
+        delay(5000);
+      }
+      for (j = 0; j < 4; j++) {
+        omega_cmd_x10[j] = 0;
+      }
+      stop_all();
+      id_seq++;
+      start_bit = 0;
+    }
+    // seq = 2 :
+    else if (id_seq == 2) {
+
     }
   }
 }
