@@ -123,8 +123,6 @@ ISR(PCINT2_vect) {
 // Attach the given pins to the rotary encoder input pins                                         //
 //================================================================================================//
 uint8_t RotaryEncoders::attach(int n, uint8_t pin1, uint8_t pin2, uint8_t mode) {
-  uint8_t pin1_pcint = 0, pin2_pcint = 0;
-
 #if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
 #ifdef _usePCI0
 #endif
@@ -145,6 +143,9 @@ uint8_t RotaryEncoders::attach(int n, uint8_t pin1, uint8_t pin2, uint8_t mode) 
       noInterrupts();
       PCICR = _BV(PCIE2);                               // Enables PORT K Pin Change Interrupt
       PCMSK2 |= (1 << (pin1 - 62)) | (1 << (pin2 - 62));  // Enables all PORT K Pin Change Interrupt
+      if (mode == QUAD_MULTI) {
+        
+      }
       interrupts();
 
       return (0);
@@ -157,6 +158,7 @@ uint8_t RotaryEncoders::attach(int n, uint8_t pin1, uint8_t pin2, uint8_t mode) 
 #endif
 #endif
 #if defined(__AVR_ATmega328__) || (__AVR_ATmega328P__) || defined(__AVR_ATmega168__) || defined(__AVR_ATmega168P__)
+  uint8_t pin1_pcint = 0, pin2_pcint = 0;
   if (0 <= n && n <= 3) {
     if (pin1 <= 23 && pin2 <= 23) {
       // pin direction settings

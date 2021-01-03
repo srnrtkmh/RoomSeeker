@@ -9,6 +9,10 @@
 //   2020/12/11 : Start this project based on motor_control.ino                                   //
 //                Added ir sensor reading process                                                 //
 //   2021/01/02 : Added rate limit process                                                        //
+//   2021/01/03 : Added IMU reading process                                                       //
+//                Added battery voltage checking process                                          //
+//                Purged command reading function to the other file                               //
+//                Embeded watch dog timer                                                         //
 //                                                                                                //
 // Pin Assign                                                                                     //
 //    0 -                                          1 -                                            //
@@ -56,11 +60,14 @@
 //================================================================================================//
 #include <avr/interrupt.h>
 #include <TimerOne.h>
+#include <avr/wdt.h>
 #include "rotary_encoders.h"
+#include "mpu9250.h"
 #include "PS2X_lib.h"
 #include "acceleration.h"
+#include "command.h"
 
-// #define DEBUG
+#define DEBUG
 
 //================================================================================================//
 // Global Variables                                                                               //
@@ -133,28 +140,34 @@ int16_t Fc_n[4] = { -389, -346, -360, -349};        // Coulonb friction compensa
 int16_t Fd_p_x100[4] = {141, 173, 158, 149};        // Dynamic friction compensation parameter for negative direction
 int16_t Fd_n_x100[4] = {148, 176, 154, 149};        // Dynamic friction compensation parameter for negative direction
 
-// For ir sensor
-#define IRNUM 12
-const uint8_t IrPIN[IRNUM] = {38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49};
-uint8_t ir_state[IRNUM] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-
-// Useful constants for calculation
-const long sampling_time = 10000;                   // サンプリング時間[us]
-const long dt_x1000 = 10;                           // (sampling_time / 1,000,000) * 1000 [10^-3 sec]
-const long _dt_x10 = 1000;                          // (sampling_time / 1,000,000)^-1 [10^-1 sec^-1]
-const long pi100 = 314;                             // Pi x 100
-
 // Chassis parameter
 long work_vel_cmd_x10[3] = {0, 0, 0};               // Workspace control command
 long work_vel_cmd_x10_rl[3] = {0, 0, 0};            // Workspace control command applied rate limit
-uint16_t rate_limit_work[3] = {30, 30, 5};          // Rate limit value for workspace velocity
+uint16_t rate_limit_work[3] = {75, 75, 15};         // Rate limit value for workspace velocity
 uint8_t workspace_ctrl = 0;                         // Workspace control flag
 const int16_t W = 215;                              // Tread width
 const int16_t L = 162;                              // Wheel base
 const int16_t R = 40;                               // Wheel Radius
 
-// Sample number
+// For MPU-9250 IMU sensor
+Mpu9250 mpu9250;
+
+// For ir sensor
+#define IRNUM 12
+const uint8_t IrPIN[IRNUM] = {38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49};
+uint8_t ir_state[IRNUM] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+// For battery check
+const uint8_t BAT_AD_PIN = A0;                      // Battery voltage pin
+long bat_vol_raw = 0;                               // Battery voltage A/D conversion result
+long bat_vol_x100 = 0;                              // Battery voltage [x100 V]
+
+// Useful constants for calculation
 long n = 0;                                         // Sample counter variable
+const long sampling_time = 20000;                   // Sampling time[us]
+const long dt_x1000 = 20;                           // (sampling_time / 1,000,000) * 1000 [10^-3 sec]
+const long _dt_x10 = 500;                           // (sampling_time / 1,000,000)^-1 [10^-1 sec^-1]
+const long pi100 = 314;                             // Pi x 100
 
 // For sequence
 byte start_bit = 0;                                 // Periodic process is enabled or not
@@ -171,16 +184,16 @@ PROGMEM const uint8_t PS2_DAT = 55;                 // DAT pin settings
 PROGMEM const uint8_t PS2_SEL = 56;                 // SEL pin settings
 PROGMEM const uint8_t PS2_CMD = 57;                 // CMD pin settings
 PROGMEM const uint8_t PS2_CLK = 58;                 // CLK pin settings
-PROGMEM const bool pressures = true;                //
-PROGMEM const bool rumble    = true;                //
-byte ps2_error = 0;                                 //
-byte ps2_type = 0;                                  //
-byte ps2_vibrate = 0;                               //
+PROGMEM const bool pressures = true;                // pressures is enabled or not
+PROGMEM const bool rumble    = true;                // rumble is enabled or not
+byte ps2_error = 0;                                 // PS2 controller can communicate or not
+byte ps2_type = 0;                                  // PS2 controller type
+byte ps2_vibrate = 0;                               // vibration is enabled or not
 uint8_t ps2_ctrl = 0;                               // This flag shows command from PS2 controller is enable or not
 PS2X ps2x;                                          // create PS2 Controller Object
 
 // Reset func
-void (* resetFunc) (void) = 0;                      //
+void (* resetFunc) (void) = 0;                      // Reset function
 
 //================================================================================================//
 // go_advance(int speed) --- drive all motors with the same PWM value                             //
@@ -255,108 +268,12 @@ void stop_all() {
 }
 
 //================================================================================================//
-// Wheel velocity command                                                                         //
-//   Argument : *str - received character array, ptr - the last pointer of the character array    //
-//   Return   : none                                                                              //
-//================================================================================================//
-void read_wheel_vel_cmd(char *str, uint8_t ptr) {
-  if (ptr == 34) {
-    if (str[0] == 'v' && str[1] == 'e' && str[2] == 'l') {
-      if (str[32] == 'e' && str[33] == 'n' && str[34] == 'd') {
-        if (str[3] == ',' && str[7] == ',' && str[13] == ',' && str[19] == ',' && str[25] == ',' && str[31] == ',') {
-          if (str[8] == '+')       omega_cmd_x10[0] =   ((int16_t)str[ 9] - 48) * 1000 + ((int16_t)str[10] - 48) * 100 + ((int16_t)str[11] - 48) * 10 + ((int16_t)str[12] - 48);
-          else if (str[8] == '-')  omega_cmd_x10[0] = -(((int16_t)str[ 9] - 48) * 1000 + ((int16_t)str[10] - 48) * 100 + ((int16_t)str[11] - 48) * 10 + ((int16_t)str[12] - 48));
-          if (str[14] == '+')      omega_cmd_x10[1] =   ((int16_t)str[15] - 48) * 1000 + ((int16_t)str[16] - 48) * 100 + ((int16_t)str[17] - 48) * 10 + ((int16_t)str[18] - 48);
-          else if (str[14] == '-') omega_cmd_x10[1] = -(((int16_t)str[15] - 48) * 1000 + ((int16_t)str[16] - 48) * 100 + ((int16_t)str[17] - 48) * 10 + ((int16_t)str[18] - 48));
-          if (str[20] == '+')      omega_cmd_x10[2] =   ((int16_t)str[21] - 48) * 1000 + ((int16_t)str[22] - 48) * 100 + ((int16_t)str[23] - 48) * 10 + ((int16_t)str[24] - 48);
-          else if (str[20] == '-') omega_cmd_x10[2] = -(((int16_t)str[21] - 48) * 1000 + ((int16_t)str[22] - 48) * 100 + ((int16_t)str[23] - 48) * 10 + ((int16_t)str[24] - 48));
-          if (str[26] == '+')      omega_cmd_x10[3] =   ((int16_t)str[27] - 48) * 1000 + ((int16_t)str[28] - 48) * 100 + ((int16_t)str[29] - 48) * 10 + ((int16_t)str[30] - 48);
-          else if (str[26] == '-') omega_cmd_x10[3] = -(((int16_t)str[27] - 48) * 1000 + ((int16_t)str[28] - 48) * 100 + ((int16_t)str[29] - 48) * 10 + ((int16_t)str[30] - 48));
-          start_bit = 1;
-          workspace_ctrl = 0;
-          ps2_ctrl = 0;
-        }
-      }
-    }
-  }
-}
-
-//================================================================================================//
-// Workspace velocity command                                                                     //
-//   Argument : *str - received character array, ptr - the last pointer of the character array    //
-//   Return   : none                                                                              //
-//================================================================================================//
-void read_work_vel_cmd(char *str, uint8_t ptr) {
-  if (ptr == 28) {
-    if (str[0] == 'w' && str[1] == 'r' && str[2] == 'k') {
-      if (str[26] == 'e' && str[27] == 'n' && str[28] == 'd') {
-        if (str[3] == ',' && str[7] == ',' && str[13] == ',' && str[19] == ',' && str[25] == ',') {
-          if (str[8] == '+')       work_vel_cmd_x10[0] =   ((int16_t)str[ 9] - 48) * 1000 + ((int16_t)str[10] - 48) * 100 + ((int16_t)str[11] - 48) * 10 + ((int16_t)str[12] - 48);
-          else if (str[8] == '-')  work_vel_cmd_x10[0] = -(((int16_t)str[ 9] - 48) * 1000 + ((int16_t)str[10] - 48) * 100 + ((int16_t)str[11] - 48) * 10 + ((int16_t)str[12] - 48));
-          if (str[14] == '+')      work_vel_cmd_x10[1] =   ((int16_t)str[15] - 48) * 1000 + ((int16_t)str[16] - 48) * 100 + ((int16_t)str[17] - 48) * 10 + ((int16_t)str[18] - 48);
-          else if (str[14] == '-') work_vel_cmd_x10[1] = -(((int16_t)str[15] - 48) * 1000 + ((int16_t)str[16] - 48) * 100 + ((int16_t)str[17] - 48) * 10 + ((int16_t)str[18] - 48));
-          if (str[20] == '+')      work_vel_cmd_x10[2] =   ((int16_t)str[21] - 48) * 1000 + ((int16_t)str[22] - 48) * 100 + ((int16_t)str[23] - 48) * 10 + ((int16_t)str[24] - 48);
-          else if (str[20] == '-') work_vel_cmd_x10[2] = -(((int16_t)str[21] - 48) * 1000 + ((int16_t)str[22] - 48) * 100 + ((int16_t)str[23] - 48) * 10 + ((int16_t)str[24] - 48));
-          start_bit = 1;
-          workspace_ctrl = 1;
-          ps2_ctrl = 0;
-        }
-      }
-    }
-  }
-}
-
-//================================================================================================//
-// Voltage command                                                                                //
-//================================================================================================//
-void read_vol_cmd(char *str, uint8_t ptr) {
-  if (ptr == 34) {
-    if (str[0] == 'v' && str[1] == 'o' && str[2] == 'l') {
-      // Future works
-    }
-  }
-}
-
-//================================================================================================//
-// Parameter change command No.1                                                                  //
-//================================================================================================//
-void read_pr1_cmd(char *str, uint8_t ptr) {
-  if (ptr == 100) {
-    if (str[0] == 'p' && str[1] == 'r' && str[2] == '1') {
-      // Future works
-    }
-  }
-}
-
-//================================================================================================//
-// Parameter change command No.2                                                                  //
-//================================================================================================//
-void read_pr2_cmd(char *str, uint8_t ptr) {
-  if (ptr == 100) {
-    if (str[0] == 'p' && str[1] == 'r' && str[2] == '2') {
-      // Future works
-    }
-  }
-}
-
-//================================================================================================//
-// Parameter change command No.3                                                                  //
-//================================================================================================//
-void read_pr3_cmd(char *str, uint8_t ptr) {
-  if (ptr == 100) {
-    if (str[0] == 'p' && str[1] == 'r' && str[2] == '3') {
-      // Future works
-    }
-  }
-}
-
-//================================================================================================//
 // void print_label(void) --- print data label                                                    //
 //================================================================================================//
 void print_label(void) {
 #ifdef DEBUG
   // For normal
-  Serial.print("n, cnt_now[0], cnt_now[1], cnt_now[2], cnt_now[3], omega_res_x10[0], omega_res_x10[1], omega_res_x10[2], omega_res_x10[3], omega_cmd_x10[0], omega_cmd_x10[1], omega_cmd_x10[2], omega_cmd_x10[3], vout[0], vout[1], vout[2], vout[3]\n");
+  Serial.print("n, cnt_now[0], cnt_now[1], cnt_now[2], cnt_now[3], omega_res_x10[0], omega_res_x10[1], omega_res_x10[2], omega_res_x10[3], omega_cmd_x10[0], omega_cmd_x10[1], omega_cmd_x10[2], omega_cmd_x10[3], vout[0], vout[1], vout[2], vout[3], ir_state, mpu9250_ax, mpu9250_ay, mpu9250_az, mpu9250_gx, mpu9250_gy, mpu9250_gz, mpu9250_mx, mpu9250_my, mpu9250_mz, mpu9250_tc, bat_vol_x100, ps2_ctrl\n");
 
   // For debug
   //  Serial.print("n, cnt_now[0], cnt_now[1], cnt_now[2], cnt_now[3], omega_res_x10[0], omega_res_x10[1], omega_res_x10[2], omega_res_x10[3], omega_res_x10_lpf[0], omega_res_x10_lpf[1], omega_res_x10_lpf[2], omega_res_x10_lpf[3], omega_cmd_x10[0], omega_cmd_x10[1], omega_cmd_x10[2], omega_cmd_x10[3], vout[0], vout[1], vout[2], vout[3], enc.read_test_cnt\n");
@@ -387,8 +304,14 @@ void print_data(void) {
   // Serial.print(enc.read_test_cnt());
   // sprintf(str, "%+5d,%+5d,%+5d", (int16_t)work_vel_cmd_x10[0], (int16_t)work_vel_cmd_x10[1], (int16_t)work_vel_cmd_x10[2]);
   // Serial.print(str);
-  sprintf(str, "%d%d%d%d%d%d%d%d%d%d%d%d", ir_state[0], ir_state[1], ir_state[2], ir_state[3], ir_state[4], ir_state[5], ir_state[6], ir_state[7], ir_state[8], ir_state[9], ir_state[10], ir_state[11]);
+  sprintf(str, "%d%d%d%d%d%d%d%d%d%d%d%d,", ir_state[0], ir_state[1], ir_state[2], ir_state[3], ir_state[4], ir_state[5], ir_state[6], ir_state[7], ir_state[8], ir_state[9], ir_state[10], ir_state[11]);
   Serial.print(str);
+  sprintf(str, "%6d,%6d,%6d,", mpu9250.ax, mpu9250.ay, mpu9250.az); Serial.print(str);
+  sprintf(str, "%6d,%6d,%6d,", mpu9250.gx, mpu9250.gy, mpu9250.gz); Serial.print(str);
+  sprintf(str, "%6d,%6d,%6d,", mpu9250.mx, mpu9250.my, mpu9250.mz); Serial.print(str);
+  sprintf(str, "%6d,", mpu9250.tc); Serial.print(str);
+  sprintf(str, "%4d,", (uint16_t)bat_vol_x100); Serial.print(str);
+  sprintf(str, "%2d", ps2_ctrl); Serial.print(str);
   Serial.print("\n");
 }
 
@@ -410,12 +333,29 @@ void inv_kinematics(void) {
 void flash() {
   int i;
   long tmp;
-  interrupts();                   // 次回の割り込みを許可(これがないと次のタイマ割り込み周期がずれる)
+  interrupts();     // Enable interrupts
+  wdt_reset();      // Reset WDT
 
   // Read ir sensor state
   for (i = 0; i < IRNUM; i++) {
     ir_state[i] = digitalRead(IrPIN[i]);
   }
+
+  // Update encoder counter value
+  for (i = 0; i < 4; i++) cnt_pre[i] = cnt_now[i];
+  noInterrupts();
+  cnt_now[0] = cnt_dir[0] * enc.read_cnt(FR_ENC);
+  cnt_now[1] = cnt_dir[1] * enc.read_cnt(FL_ENC);
+  cnt_now[2] = cnt_dir[2] * enc.read_cnt(RR_ENC);
+  cnt_now[3] = cnt_dir[3] * enc.read_cnt(RL_ENC);
+  interrupts();
+
+  // Read MPU-9250 IMU sensor value
+  mpu9250.reload_data();
+
+  // Read battery voltage
+  bat_vol_raw = analogRead(A0);
+  bat_vol_x100 = bat_vol_raw * 1000 / 1024;
 
   // Execute motor control if start_bit is 1
   if (start_bit == 1) {
@@ -427,15 +367,6 @@ void flash() {
 
     // Update inverse kinematics
     if (workspace_ctrl == 1) inv_kinematics();
-
-    // Update encoder counter value
-    for (i = 0; i < 4; i++) cnt_pre[i] = cnt_now[i];
-    noInterrupts();
-    cnt_now[0] = cnt_dir[0] * enc.read_cnt(FR_ENC);
-    cnt_now[1] = cnt_dir[1] * enc.read_cnt(FL_ENC);
-    cnt_now[2] = cnt_dir[2] * enc.read_cnt(RR_ENC);
-    cnt_now[3] = cnt_dir[3] * enc.read_cnt(RL_ENC);
-    interrupts();
 
     // Calculate difference between current and previous counter value
     for (i = 0; i < 4; i++) {
@@ -545,32 +476,7 @@ void setup() {
 
   // Setup of PS2 Controller
   ps2_error = ps2x.config_gamepad(PS2_CLK, PS2_CMD, PS2_SEL, PS2_DAT, pressures, rumble);
-  if (ps2_error == 0) {
-#ifdef DEBUG
-    Serial.println(F("Found Controller, configured successful"));
-    Serial.print(F("pressures = "));
-    if (pressures)
-      Serial.println(F("true"));
-    else
-      Serial.println(F("false"));
-    Serial.print(F("rumble = "));
-    if (rumble)    Serial.println(F("true"));
-    else           Serial.println(F("false"));
-#endif
-  }
-  else if (ps2_error == 1) Serial.println(F("No controller found"));
-  else if (ps2_error == 2) Serial.println(F("Controller found but not accepting commands"));
-  else if (ps2_error == 3) Serial.println(F("Controller refusing to enter Pressures mode"));
-
   ps2_type = ps2x.readType();
-  switch (ps2_type) {
-#ifdef DEBUG
-    case 0: Serial.println(F("Unknown Controller type found")); break;
-    case 1: Serial.println(F("DualShock Controller found"));    break;
-    case 2: Serial.println(F("GuitarHero Controller found"));   break;
-    case 3: Serial.println(F("Wireless Sony DualShock Controller found")); break;
-#endif
-  }
 
   // Initialize GPIO
   gpio_init();
@@ -580,6 +486,9 @@ void setup() {
   enc.attach(1, FL_ENC_A, FL_ENC_B, DUAL_MULTI);
   enc.attach(2, RR_ENC_A, RR_ENC_B, DUAL_MULTI);
   enc.attach(3, RL_ENC_A, RL_ENC_B, DUAL_MULTI);
+
+  // Initialize MPU-9250
+  mpu9250.init();
 
   // Timer 3 PWM output compare settings
   OCR3A = 0;                        // Clear OCR3A
@@ -604,6 +513,9 @@ void setup() {
   // Timer1割込の設定
   Timer1.initialize(sampling_time); // サンプリングタイムを設定して初期化
   Timer1.attachInterrupt(flash);    // 割り込み関数を登録
+
+  // Enable watch dog timer
+  wdt_enable(WDTO_1S);
 }
 
 //================================================================================================//
@@ -652,12 +564,16 @@ void loop() {
 
     // check if the end command received or not
     if (rec[rec_ptr - 2] == 'e' && rec[rec_ptr - 1] == 'n' && rec[rec_ptr] == 'd') {
-      if (rec[0] == 'v' && rec[1] == 'e' && rec[2] == 'l')      read_wheel_vel_cmd(rec, rec_ptr);
-      else if (rec[0] == 'w' && rec[1] == 'r' && rec[2] == 'k') read_work_vel_cmd(rec, rec_ptr);
-      else if (rec[0] == 'v' && rec[1] == 'o' && rec[2] == 'l') read_vol_cmd(rec, rec_ptr);
-      else if (rec[0] == 'p' && rec[1] == 'r' && rec[2] == '1') read_pr1_cmd(rec, rec_ptr);
-      else if (rec[0] == 'p' && rec[1] == 'r' && rec[2] == '2') read_pr2_cmd(rec, rec_ptr);
-      else if (rec[0] == 'p' && rec[1] == 'r' && rec[2] == '3') read_pr3_cmd(rec, rec_ptr);
+      if (ps2_ctrl == 0) {
+        if (rec[0] == 'v' && rec[1] == 'e' && rec[2] == 'l')      read_wheel_vel_cmd(rec, rec_ptr, omega_cmd_x10);
+        else if (rec[0] == 'w' && rec[1] == 'r' && rec[2] == 'k') read_work_vel_cmd(rec, rec_ptr, work_vel_cmd_x10);
+        else if (rec[0] == 'v' && rec[1] == 'o' && rec[2] == 'l') read_vol_cmd(rec, rec_ptr);
+        else if (rec[0] == 'p' && rec[1] == 'r' && rec[2] == '1') read_pr1_cmd(rec, rec_ptr);
+        else if (rec[0] == 'p' && rec[1] == 'r' && rec[2] == '2') read_pr2_cmd(rec, rec_ptr);
+        else if (rec[0] == 'p' && rec[1] == 'r' && rec[2] == '3') read_pr3_cmd(rec, rec_ptr);
+        start_bit = 1;
+        workspace_ctrl = 1;
+      }
       for (i = 0; i < sizeof(rec) - 1; i++) rec[i] = 0;
     }
 
@@ -710,7 +626,7 @@ void loop() {
     resetFunc();
   }
 
-  if (ps2_type != 2) {    //DualShock Controller
+  if (ps2_type != 2) { //DualShock Controller
     ps2x.read_gamepad(false, ps2_vibrate); //read controller and set large motor to spin at 'vibrate' speed
 
     // if (ps2x.Button(PSB_START))

@@ -332,8 +332,10 @@ void PS2X::sendCommandString(byte string[], byte len) {
   byte temp[len];
   ATT_CLR(); // low enable joystick
   delayMicroseconds(CTRL_BYTE_DELAY);
-  for (int y = 0; y < len; y++)
+  for (int y = 0; y < len; y++){
     temp[y] = _gamepad_shiftinout(string[y]);
+    temp[y] = temp[y] + 0;
+  }
   ATT_SET(); //high disable joystick
   delay(read_delay);                  //wait a few
   delay(2);

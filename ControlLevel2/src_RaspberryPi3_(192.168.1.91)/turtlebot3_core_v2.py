@@ -8,7 +8,8 @@
 # Updated : 2020/09/20 Started this project based on "MotorControlTest_v2.py"                      #
 #           2020/10/24                                                                             #
 #           2020/10/31 Added odometry publishing process                                           #
-#           2021/01/02 Renamed "turtlebot3_core_v2.py"                                             #
+#           2021/01/02 Renamed "turtlebot3_core_v2.py". Added IR sensor data to received data      #
+#           2021/01/03 Added IMU sensor data to received data                                      #
 #                                                                                                  #
 #                                                                       (C) 2020 Kyohei Umemoto    #
 # How to execute :                                                                                 #
@@ -69,6 +70,8 @@ strCsvName = ""                   # ファイル名用変数
 preffix = "MotorControl_with_Lidar" # ファイル名プレフィックス
 suffix = ""                       # ファイル名サフィックス
 before_nokori = ""
+sample_err = 0
+sample_err_num = 0
 
 # ROS publish variables ---------------------------------------------------------------------------#
 # Message variables
@@ -134,7 +137,19 @@ class arduino_motor_control():
     self.x_ul = [ 5000.0,  5000.0,  5000.0]             # Upper limit of the Workspace
     self.x_ll = [-5000.0, -5000.0, -5000.0]             # Lower limit of the Workspace
     self.ir_hex = 0                                     # Ir sensor date in hex
+    self.ax = 0;                                        # Acc x-axis
+    self.ay = 0;                                        # Acc y-axis
+    self.az = 0;                                        # Acc z-axis
+    self.gx = 0;                                        # Gyro x-axis
+    self.gy = 0;                                        # Gyro y-axis
+    self.gz = 0;                                        # Gyro z-axis
+    self.mx = 0;                                        # Mag x-axis
+    self.my = 0;                                        # Mag y-axis
+    self.mz = 0;                                        # Mag z-axis
+    self.temp = 0;                                      # Temperature
     self.con = 0                                        # Serial console connected to arduino motor controller
+    self.bat_vol_x100 = 0;                              # Battery voltage
+    self.ps2_ctrl = 0;                                  # PS2 controller is enabled or not
     self.pi = 3.141592
   
   def print_state(self):
@@ -485,11 +500,11 @@ if __name__ == '__main__':
           tmp_val_list = tmp_list[i].split(',')
           arduino_pre = arduino
           sample_err = 0
-          if len(tmp_val_list) == 18:
+          if len(tmp_val_list) == 30:
             if is_int(tmp_val_list[0]):  arduino.sample_num_node = int(tmp_val_list[0])
             else:                        sample_err = 1
             if is_int(tmp_val_list[1]):  arduino.cnt_now[0] = int(tmp_val_list[1])
-            else:                        arduino.sample_err = 1
+            else:                        sample_err = 1
             if is_int(tmp_val_list[2]):  arduino.cnt_now[1] = int(tmp_val_list[2])
             else:                        sample_err = 1
             if is_int(tmp_val_list[3]):  arduino.cnt_now[2] = int(tmp_val_list[3])
@@ -522,14 +537,39 @@ if __name__ == '__main__':
             else:                        sample_err = 1
             if is_int(tmp_val_list[17]): arduino.ir_hex = int(tmp_val_list[17])
             else:                        sample_err = 1
+            if is_int(tmp_val_list[18]): arduino.ax = int(tmp_val_list[18])
+            else:                        sample_err = 1
+            if is_int(tmp_val_list[19]): arduino.ay = int(tmp_val_list[19])
+            else:                        sample_err = 1
+            if is_int(tmp_val_list[20]): arduino.az = int(tmp_val_list[20])
+            else:                        sample_err = 1
+            if is_int(tmp_val_list[21]): arduino.gx = int(tmp_val_list[21])
+            else:                        sample_err = 1
+            if is_int(tmp_val_list[22]): arduino.gy = int(tmp_val_list[22])
+            else:                        sample_err = 1
+            if is_int(tmp_val_list[23]): arduino.gz = int(tmp_val_list[23])
+            else:                        sample_err = 1
+            if is_int(tmp_val_list[24]): arduino.mx = int(tmp_val_list[24])
+            else:                        sample_err = 1
+            if is_int(tmp_val_list[25]): arduino.my = int(tmp_val_list[25])
+            else:                        sample_err = 1
+            if is_int(tmp_val_list[26]): arduino.mz = int(tmp_val_list[26])
+            else:                        sample_err = 1
+            if is_int(tmp_val_list[27]): arduino.temp = int(tmp_val_list[27])
+            else:                        sample_err = 1
+            if is_int(tmp_val_list[28]): arduino.bat_vol_x100 = int(tmp_val_list[28])
+            else:                        sample_err = 1
+            if is_int(tmp_val_list[29]): arduino.ps2_ctrl = int(tmp_val_list[29])
+            else:                        sample_err = 1
           else:
             sample_err = 1
+            sample_err_num += 1
             arduino = arduino_pre
           
           arduino.odometry_update_cmd()
           arduino.odometry_update_res()
           
-          if sample_err != 0: print("Error occured : " + tmp_list[i])
+          if sample_err != 0: print("Error : " + str(sample_err_num))
           
           data_file.write(currentDate.strftime("%Y/%m/%d %H:%M:%S") + ".%03d" % (currentDate.microsecond // 1000)
             + ',' + str(arduino.sample_num_node) + ',' + str(arduino.cnt_now[0]) + ',' + str(arduino.cnt_now[1]) + ',' + str(arduino.cnt_now[2]) + ',' + str(arduino.cnt_now[3])
