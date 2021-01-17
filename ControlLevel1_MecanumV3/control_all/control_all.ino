@@ -13,6 +13,7 @@
 //                Added battery voltage checking process                                          //
 //                Purged command reading function to the other file                               //
 //                Embeded watch dog timer                                                         //
+//   2021/01/10 : 送信側をSerial.printを使わないように変更                                             //
 //                                                                                                //
 // Pin Assign                                                                                     //
 //    0 -                                          1 -                                            //
@@ -126,19 +127,21 @@ int16_t vout_ul[4] = { 1000,  1000,  1000,  1000};  // Upper limit of voltage ou
 
 // Feecback parameters
 long g_omega[4] = {60, 60, 60, 60};                 // Cutoff angular frequency [rad/sec]
-int16_t Kp[4] = {5, 5, 5, 5};                       // P gain for PI control
+int16_t Kp[4] = {3, 3, 3, 3};                       // P gain for PI control
 // int16_t Ki[4] = {20, 20, 20, 20};                // I gain for PI control
-int16_t Ki[4] = {35, 35, 35, 35};                   // I gain for PI control
+int16_t Ki[4] = {30, 30, 30, 30};                   // I gain for PI control
 
 // Feedforward parameters
 // int16_t Fc_p[4] = {  785,  691,  699,  687};     // Coulonb friction compensation parameter for positive direction
 // int16_t Fc_n[4] = { -778, -692, -720, -699};     // Coulonb friction compensation parameter for negative direction
-int16_t Fc_p[4] = {  392,  345,  349,  343};        // Coulonb friction compensation parameter for positive direction
-int16_t Fc_n[4] = { -389, -346, -360, -349};        // Coulonb friction compensation parameter for negative direction
-// int16_t Fc_p[4] = {  0,  0,  0,  0};             // Coulonb friction compensation parameter for positive direction
-// int16_t Fc_n[4] = { -0, -0, -0, -0};             // Coulonb friction compensation parameter for negative direction
-int16_t Fd_p_x100[4] = {141, 173, 158, 149};        // Dynamic friction compensation parameter for negative direction
-int16_t Fd_n_x100[4] = {148, 176, 154, 149};        // Dynamic friction compensation parameter for negative direction
+// int16_t Fc_p[4] = {  392,  345,  349,  343};     // Coulonb friction compensation parameter for positive direction
+// int16_t Fc_n[4] = { -389, -346, -360, -349};     // Coulonb friction compensation parameter for negative direction
+int16_t Fc_p[4] = {  0,  0,  0,  0};             // Coulonb friction compensation parameter for positive direction
+int16_t Fc_n[4] = { -0, -0, -0, -0};             // Coulonb friction compensation parameter for negative direction
+int16_t Fd_p_x100[4] = {141, 173, 158, 149};     // Dynamic friction compensation parameter for negative direction
+int16_t Fd_n_x100[4] = {148, 176, 154, 149};     // Dynamic friction compensation parameter for negative direction
+// int16_t Fd_p_x100[4] = { 50,  50,  50,  50};     // Dynamic friction compensation parameter for negative direction
+// int16_t Fd_n_x100[4] = { 50,  50,  50,  50};     // Dynamic friction compensation parameter for negative direction
 
 // Chassis parameter
 long work_vel_cmd_x10[3] = {0, 0, 0};               // Workspace control command
@@ -165,6 +168,7 @@ long bat_vol_x100 = 0;                              // Battery voltage [x100 V]
 // Useful constants for calculation
 long n = 0;                                         // Sample counter variable
 const long sampling_time = 20000;                   // Sampling time[us]
+long start_time = 0, stop_time = 0, interval = 0;   //
 const long dt_x1000 = 20;                           // (sampling_time / 1,000,000) * 1000 [10^-3 sec]
 const long _dt_x10 = 500;                           // (sampling_time / 1,000,000)^-1 [10^-1 sec^-1]
 const long pi100 = 314;                             // Pi x 100
@@ -172,7 +176,6 @@ const long pi100 = 314;                             // Pi x 100
 // For sequence
 byte start_bit = 0;                                 // Periodic process is enabled or not
 char rec[128] = {0};                                // Received serial characters
-uint8_t rec_ptr = 0;                                // Received serial pointer
 uint8_t rec_vel_flag = 0;                           // The flag specifing the received data is velocity command
 uint8_t rec_vol_flag = 0;                           // The flag specifing the received data is velocity command
 uint8_t rec_pr1_flag = 0;                           // The flag specifing the received data is velocity command
@@ -194,18 +197,6 @@ PS2X ps2x;                                          // create PS2 Controller Obj
 
 // Reset func
 void (* resetFunc) (void) = 0;                      // Reset function
-
-//================================================================================================//
-// go_advance(int speed) --- drive all motors with the same PWM value                             //
-//   Argument : speed - PWM value                                                                 //
-//   Return   : none                                                                              //
-//================================================================================================//
-void go_advance(int speed) {
-  FR_fwd(speed);
-  FL_fwd(speed);
-  RR_fwd(speed);
-  RL_fwd(speed);
-}
 
 //================================================================================================//
 // FR_fwd(int speed), FR_bck(int speed) --- this is the same for FL, RR, RL motor                 //
@@ -281,37 +272,75 @@ void print_label(void) {
 }
 
 //================================================================================================//
+//================================================================================================//
+void transmit(char a) {
+  while (!(UCSR0A & (1 << UDRE0)));
+  UDR0 = a;
+}
+
+//================================================================================================//
+//================================================================================================//
+void test(char *str) {
+  uint8_t i = 0;
+  while (str[i] != '\0') transmit(str[i++]);
+}
+
+//================================================================================================//
 // void print_data(void) --- print counted value                                                  //
 //================================================================================================//
 void print_data(void) {
   char str[64];
   sprintf(str, "%3d,", (int16_t)n);
+  polling();                                          // #### Polling #####
   Serial.print(str);
+  polling();                                          // #### Polling #####
+  start_time = micros();
   sprintf(str, "%+6d,%+6d,%+6d,%+6d,", (uint16_t)cnt_now[0], (uint16_t)cnt_now[1], (uint16_t)cnt_now[2], (uint16_t)cnt_now[3]);
+  stop_time = micros();
+  interval = stop_time - start_time;
+  polling();                                          // #### Polling #####
   Serial.print(str);
+  polling();                                          // #### Polling #####
   sprintf(str, "%+5d,%+5d,%+5d,%+5d,", (int16_t)omega_res_x10[0], (int16_t)omega_res_x10[1], (int16_t)omega_res_x10[2], (int16_t)omega_res_x10[3]);
+  polling();                                          // #### Polling #####
   Serial.print(str);
-  // sprintf(str, "%+5d,%+5d,%+5d,%+5d,", (int16_t)omega_res_x10_lpf[0], (int16_t)omega_res_x10_lpf[1], (int16_t)omega_res_x10_lpf[2], (int16_t)omega_res_x10_lpf[3]);
-  // Serial.print(str);
+  polling();                                          // #### Polling #####
   sprintf(str, "%+5d,%+5d,%+5d,%+5d,", (int16_t)omega_cmd_x10[0], (int16_t)omega_cmd_x10[1], (int16_t)omega_cmd_x10[2], (int16_t)omega_cmd_x10[3]);
+  polling();                                          // #### Polling #####
   Serial.print(str);
+  polling();                                          // #### Polling #####
   sprintf(str, "%+5d,%+5d,%+5d,%+5d,", (int16_t)vout[0], (int16_t)vout[1], (int16_t)vout[2], (int16_t)vout[3]);
+  polling();                                          // #### Polling #####
   Serial.print(str);
-  // sprintf(str, "%+5d,%+5d,%+5d,%+5d,", (int16_t)vout_ff[0], (int16_t)vout_ff[1], (int16_t)vout_ff[2], (int16_t)vout_ff[3]);
-  // Serial.print(str);
-  // sprintf(str, "%+5d,%+5d,%+5d,%+5d,", (int16_t)vout_fb[0], (int16_t)vout_fb[1], (int16_t)vout_fb[2], (int16_t)vout_fb[3]);
-  // Serial.print(str);
-  // Serial.print(enc.read_test_cnt());
-  // sprintf(str, "%+5d,%+5d,%+5d", (int16_t)work_vel_cmd_x10[0], (int16_t)work_vel_cmd_x10[1], (int16_t)work_vel_cmd_x10[2]);
-  // Serial.print(str);
+  polling();                                          // #### Polling #####
   sprintf(str, "%d%d%d%d%d%d%d%d%d%d%d%d,", ir_state[0], ir_state[1], ir_state[2], ir_state[3], ir_state[4], ir_state[5], ir_state[6], ir_state[7], ir_state[8], ir_state[9], ir_state[10], ir_state[11]);
+  polling();                                          // #### Polling #####
   Serial.print(str);
-  sprintf(str, "%6d,%6d,%6d,", mpu9250.ax, mpu9250.ay, mpu9250.az); Serial.print(str);
-  sprintf(str, "%6d,%6d,%6d,", mpu9250.gx, mpu9250.gy, mpu9250.gz); Serial.print(str);
-  sprintf(str, "%6d,%6d,%6d,", mpu9250.mx, mpu9250.my, mpu9250.mz); Serial.print(str);
-  sprintf(str, "%6d,", mpu9250.tc); Serial.print(str);
-  sprintf(str, "%4d,", (uint16_t)bat_vol_x100); Serial.print(str);
-  sprintf(str, "%2d", ps2_ctrl); Serial.print(str);
+  polling();                                          // #### Polling #####
+  sprintf(str, "%6d,%6d,%6d,", mpu9250.ax, mpu9250.ay, mpu9250.az);
+  polling();                                          // #### Polling #####
+  Serial.print(str);
+  polling();                                          // #### Polling #####
+  sprintf(str, "%6d,%6d,%6d,", mpu9250.gx, mpu9250.gy, mpu9250.gz);
+  polling();                                          // #### Polling #####
+  Serial.print(str);
+  polling();                                          // #### Polling #####
+  sprintf(str, "%6d,%6d,%6d,", mpu9250.mx, mpu9250.my, mpu9250.mz);
+  polling();                                          // #### Polling #####
+  Serial.print(str);
+  polling();                                          // #### Polling #####
+  sprintf(str, "%6d,", mpu9250.tc);
+  polling();                                          // #### Polling #####
+  Serial.print(str);
+  sprintf(str, "%4d,", (uint16_t)bat_vol_x100);
+  polling();                                          // #### Polling #####
+  Serial.print(str);
+  sprintf(str, "%2d,", ps2_ctrl);
+  polling();                                          // #### Polling #####
+  Serial.print(str);
+  sprintf(str, "%6d", (uint16_t)interval);
+  polling();                                          // #### Polling #####
+  Serial.print(str);
   Serial.print("\n");
 }
 
@@ -333,6 +362,8 @@ void inv_kinematics(void) {
 void flash() {
   int i;
   long tmp;
+
+  start_time = micros();
   interrupts();     // Enable interrupts
   wdt_reset();      // Reset WDT
 
@@ -349,13 +380,16 @@ void flash() {
   cnt_now[2] = cnt_dir[2] * enc.read_cnt(RR_ENC);
   cnt_now[3] = cnt_dir[3] * enc.read_cnt(RL_ENC);
   interrupts();
+  polling();                                          // #### Polling #####
 
   // Read MPU-9250 IMU sensor value
   mpu9250.reload_data();
+  polling();                                          // #### Polling #####
 
   // Read battery voltage
   bat_vol_raw = analogRead(A0);
   bat_vol_x100 = bat_vol_raw * 1000 / 1024;
+  polling();                                          // #### Polling #####
 
   // Execute motor control if start_bit is 1
   if (start_bit == 1) {
@@ -367,6 +401,7 @@ void flash() {
 
     // Update inverse kinematics
     if (workspace_ctrl == 1) inv_kinematics();
+    polling();                                          // #### Polling #####
 
     // Calculate difference between current and previous counter value
     for (i = 0; i < 4; i++) {
@@ -381,6 +416,7 @@ void flash() {
       omega_res_x10[i] = (diff_cnt[i] * 360) * _dt_x10 / ENC_RESO / GEAR_REDU;
       omega_res_x10_lpf_tmp[i] += (omega_res_x10[i] - omega_res_x10_lpf[i]) * dt_x1000;
       omega_res_x10_lpf[i] = omega_res_x10_lpf_tmp[i] * g_omega[i] / 1000;
+      polling();                                          // #### Polling #####
     }
 
     // Calculate control output
@@ -406,6 +442,7 @@ void flash() {
       // Apply saturation
       if (vout[i] > vout_ul[i]) vout[i] = vout_ul[i];
       else if (vout[i] < vout_ll[i]) vout[i] = vout_ll[i];
+      polling();                                          // #### Polling #####
     }
 
     // Apply control output to the motor
@@ -416,6 +453,7 @@ void flash() {
     // Front Left motor
     if (vout[1] > 0) FL_fwd(vout[1]);
     else             FL_bck(-vout[1]);
+    polling();                                          // #### Polling #####
 
     // Rear Right motor
     if (vout[2] > 0) RR_fwd(vout[2]);
@@ -424,6 +462,7 @@ void flash() {
     // Rear Left motor
     if (vout[3] > 0) RL_fwd(vout[3]);
     else             RL_bck(-vout[3]);
+    polling();                                          // #### Polling #####
 
     print_data();           // Output log data to upper system
     if (++n == 1000) n = 0; // Increment sample counter
@@ -432,6 +471,8 @@ void flash() {
   else {
     for (i = 0; i < 4; i++) vout[i] = 0;
   }
+  stop_time = micros();
+  interval = stop_time - start_time;
 }
 
 //================================================================================================//
@@ -519,13 +560,13 @@ void setup() {
 }
 
 //================================================================================================//
-// Main Loop                                                                                      //
+// polling()                                                                                      //
 //================================================================================================//
-void loop() {
+void polling(void) {
   char a;
   uint8_t i;
+  static uint8_t rec_ptr = 0;     // Received serial data pointer
 
-  // Reading serial communication command --------------------------------------------------------//
   while (Serial.available()) {
     a = char(Serial.read());
     rec[rec_ptr] = a;
@@ -620,6 +661,16 @@ void loop() {
       ps2_ctrl = 0;
     }
   }
+}
+
+//================================================================================================//
+// Main Loop                                                                                      //
+//================================================================================================//
+void loop() {
+  uint8_t i;
+
+  // Reading serial communication command --------------------------------------------------------//
+  polling();
 
   // Reading PS2 Controller key ------------------------------------------------------------------//
   if (ps2_error == 1) { //skip loop if no controller found
