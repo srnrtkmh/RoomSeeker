@@ -9,6 +9,7 @@
 #                      プロジェクトから分離して独立したモジュールとする                            #
 #                      "arduino_motor_control"クラスを"RoomSeekerLevel1"に名前変更                 #
 #           2021/01/16 モーターコントロールノードを追加し始める                                    #
+#           2021/01/18 Added inverse kinematics program                                            #
 #                                                                                                  #
 #                                                                       (C) 2020 Kyohei Umemoto    #
 #                                                                                                  #
@@ -32,6 +33,8 @@ def is_int(s):
 
 #==================================================================================================#
 # RoomSeeker level 1 class                                                                         #
+#   Index of each wheelspace value : 0 - Front Right, 1 - Fron Left, 2 - Rear Right, 3 - Rear Left #
+#   Index of each workspace value  : 0 - Long dir, 1 - Width dir, 2 - Yaw angle                    # 
 #==================================================================================================#
 class RoomSeekerLevel1():
   def __init__(self):
@@ -42,8 +45,11 @@ class RoomSeekerLevel1():
     self.sample_num_ul = 999                            # Upper limit of sample number
     self.sample_num_ll = 0                              # Lower limit of sample number
     self.dt = 0.02                                      # Sampling time of the motor controller
+    self.ws_dir = np.array([-1.0, 1.0, -1.0, 1.0])      # Wheelspace direction co-efficient
     self.cnt_now = np.array([0.0, 0.0, 0.0, 0.0])       # Wheel encoder counted value
+    self.omega_res = np.array([0.0, 0.0, 0.0, 0.0])     # Wheel space velocity response [rad/s]
     self.omega_res_x10 = np.array([0.0, 0.0, 0.0, 0.0]) # Wheel space velocity response [10^-1deg/s]
+    self.omega_cmd = np.array([0.0, 0.0, 0.0, 0.0])     # Wheel space velocity command [rad/s]
     self.omega_cmd_x10 = np.array([0.0, 0.0, 0.0, 0.0]) # Wheel space velocity command [10^-1deg/s]
     self.vout = np.array([0, 0, 0, 0])                  # Voltage output (PWM width : 0 - 4095)
     self.x_res = np.array([0.0, 0.0, 0.0])              # Workspace pose response calculated from velocity response [0:m, 1:m, 2:rad]
@@ -52,7 +58,8 @@ class RoomSeekerLevel1():
     self.dx_res = np.array([0.0, 0.0, 0.0])             # Workspace velocity response [0 : m/s, 1 : m/s, 2 : deg/s]
     self.dx_res_x10 = np.array([0.0, 0.0, 0.0])         # Workspace velocity response [0 : 10^-1m/s, 1 : 10^-1m/s, 2 : 10^-2deg/s]
     self.x_cmd = np.array([0.0, 0.0, 0.0])              # Workspace pose command [0:m, 1:m, 2:rad]
-    self.dx_cmd_x10 = np.array([0.0, 0.0, 0.0])         # Workspace velocity command [0 : 10^-1m/s, 1 : 10^-1m/s, 2 : 10^-2deg/s]
+    self.dx_cmd = np.array([0.0, 0.0, 0.0])             # Workspace velocity command [0 : m/s, 1 : m/s, 2 : rad/s]
+    self.dx_cmd_x10 = np.array([0.0, 0.0, 0.0])         # Workspace velocity command x10ver [0 : 10^-1m/s, 1 : 10^-1m/s, 2 : 10^-2deg/s]
     self.wheel_radius = 40.0                            # Robot wheel radius [mm]
     self.base_width =  215.0                            # Robot wheel base width [mm]
     self.base_length = 162.0                            # Robot wheel base length (between front and rear wheel shaft) [mm]
@@ -148,9 +155,10 @@ class RoomSeekerLevel1():
     self.dx_res[2] = 0
   
   def inv_kine(self):
-    self.omega_cmd_x10[0] = 0
-    self.omega_cmd_x10[1] = 0
-    self.omega_cmd_x10[2] = 0
+    self.omega_cmd[0] = (self.dx_cmd[0] + self.dx_cmd[1] + (self.base_width + self.base_length) / 1000.0 / 2.0 * self.dx_cmd[2]) / (self.wheel_radius / 1000.0);
+    self.omega_cmd[1] = (self.dx_cmd[0] - self.dx_cmd[1] - (self.base_width + self.base_length) / 1000.0 / 2.0 * self.dx_cmd[2]) / (self.wheel_radius / 1000.0);
+    self.omega_cmd[2] = (self.dx_cmd[0] - self.dx_cmd[1] + (self.base_width + self.base_length) / 1000.0 / 2.0 * self.dx_cmd[2]) / (self.wheel_radius / 1000.0);
+    self.omega_cmd[3] = (self.dx_cmd[0] + self.dx_cmd[1] - (self.base_width + self.base_length) / 1000.0 / 2.0 * self.dx_cmd[2]) / (self.wheel_radius / 1000.0);
 
   def readMEGA(self):
     tmp_str = arduino.conMEGA.read(arduino.con.inWaiting()) # シリアルのバッファー内のデータを取得
@@ -298,14 +306,14 @@ class RoomSeekerLevel1():
         # If error not occured, put the data to class
         if sample_err == 0:
           self.sample_num_node_FM = sample_num_node_FM
-          self.cnt_now[0] = cnt_now_0
-          self.cnt_now[1] = cnt_now_1
-          self.omega_res_x10[0] = omega_res_x10_0
-          self.omega_res_x10[1] = omega_res_x10_1
-          self.omega_cmd_x10[0] = omega_cmd_x10_0
-          self.omega_cmd_x10[1] = omega_cmd_x10_1
-          self.vout[0] = vout_0
-          self.vout[1] = vout_1
+          self.cnt_now[0] = self.ws_dir[0] * cnt_now_0
+          self.cnt_now[1] = self.ws_dir[1] * cnt_now_1
+          self.omega_res_x10[0] = self.ws_dir[0] * omega_res_x10_0
+          self.omega_res_x10[1] = self.ws_dir[1] * omega_res_x10_1
+          self.omega_cmd_x10[0] = self.ws_dir[0] * omega_cmd_x10_0
+          self.omega_cmd_x10[1] = self.ws_dir[1] * omega_cmd_x10_1
+          self.vout[0] = self.ws_dir[0] * vout_0
+          self.vout[1] = self.ws_dir[1] * vout_1
           # self.interval[0] = interval
         else:
           print("Error in readFM: ")
@@ -361,14 +369,14 @@ class RoomSeekerLevel1():
         # If error not occured, put the data to class
         if sample_err == 0:
           self.sample_num_node_RM = sample_num_node_RM
-          self.cnt_now[2] = cnt_now_2
-          self.cnt_now[3] = cnt_now_3
-          self.omega_res_x10[2] = omega_res_x10_2
-          self.omega_res_x10[3] = omega_res_x10_3
-          self.omega_cmd_x10[2] = omega_cmd_x10_2
-          self.omega_cmd_x10[3] = omega_cmd_x10_3
-          self.vout[2] = vout_2
-          self.vout[3] = vout_3
+          self.cnt_now[2] = self.ws_dir[2] * cnt_now_2
+          self.cnt_now[3] = self.ws_dir[3] * cnt_now_3
+          self.omega_res_x10[2] = self.ws_dir[2] * omega_res_x10_2
+          self.omega_res_x10[3] = self.ws_dir[3] * omega_res_x10_3
+          self.omega_cmd_x10[2] = self.ws_dir[2] * omega_cmd_x10_2
+          self.omega_cmd_x10[3] = self.ws_dir[3] * omega_cmd_x10_3
+          self.vout[2] = self.ws_dir[2] * vout_2
+          self.vout[3] = self.ws_dir[3] * vout_3
           # self.interval[0] = interval
         else:
           print("Error in readRM : ")

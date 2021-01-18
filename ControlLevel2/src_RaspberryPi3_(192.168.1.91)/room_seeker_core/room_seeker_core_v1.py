@@ -9,6 +9,7 @@
 #        *センサデータ収集(IRセンサ、超音波センサ、IMU、PS2)                                       #
 #                                                                                                  #
 # Updated : 2021/01/16 : Startded this project based on "turtlebot3_core_v2.py"                    #
+#           2021/01/18 : Added inverse kinematics program                                          #
 #                                                                                                  #
 #                                                                       (C) 2021 Kyohei Umemoto    #
 # How to execute :                                                                                 #
@@ -251,17 +252,43 @@ def receive_signal(signum, stack):
   arduino.conMEGA.write("t")
   arduino.conFM.write("t")
   arduino.conRM.write("t")
-  time.sleep(0.01)
-  arduino.conMEGA.write("t")
-  arduino.conFM.write("t")
-  arduino.conRM.write("t")
-  time.sleep(0.01)
-  arduino.conMEGA.write("t")
-  arduino.conFM.write("t")
-  arduino.conRM.write("t")
+  # time.sleep(0.01)
+  # arduino.conMEGA.write("t")
+  # arduino.conFM.write("t")
+  # arduino.conRM.write("t")
+  # time.sleep(0.01)
+  # arduino.conMEGA.write("t")
+  # arduino.conFM.write("t")
+  # arduino.conRM.write("t")
   # data_file.close()
   log_file.close()
   sys.exit(0)
+
+#==================================================================================================#
+# #
+#==================================================================================================#
+def rospy_shutdown():
+  # sys.exit(0)
+  # print "Rospy shutdown"
+  # currentDate = datetime.datetime.today()  # today()メソッドで現在日付・時刻のdatetime型データの変数を取得
+  # log_file.write(str(currentDate) + " : Received signal " + str(signum) + ". End this process/\n")
+  # arduino.conMEGA.write("t")
+  # arduino.conFM.write("t")
+  # arduino.conRM.write("t")
+  # time.sleep(0.01)
+  # arduino.conMEGA.write("t")
+  # arduino.conFM.write("t")
+  # arduino.conRM.write("t")
+  # time.sleep(0.01)
+  # arduino.conMEGA.write("t")
+  # arduino.conFM.write("t")
+  # arduino.conRM.write("t")
+  # data_file.close()
+  # log_file.close()
+  # sys.exit(0)
+  rospy.sleep(1)
+  sys.exit(0)
+
 
 #==================================================================================================#
 # Keyboard input function                                                                          #
@@ -269,6 +296,7 @@ def receive_signal(signum, stack):
 def key_input():
   print("key_input started.")
   while True:
+    time.sleep(0.01)
     test = raw_input()
     
     if test == 'w':
@@ -332,7 +360,7 @@ if __name__ == '__main__':
   th_key.start()
   
   # ログファイルを開く
-  log_file_name = unicode("/home/kyohei/catkin_ws/src/room_seeker/room_seeker_tset/scripts/" + preffix + currentDate.strftime('%Y_%m_%d_%H_%M_%S') + suffix + ".log", encoding='shift-jis')
+  log_file_name = unicode("/home/kyohei/catkin_ws/src/room_seeker/room_seeker_test/scripts/" + preffix + currentDate.strftime('%Y_%m_%d_%H_%M_%S') + suffix + ".log", encoding='shift-jis')
   log_file = open(log_file_name, 'w')               # ログファイルを新規作成
   log_file.write(str(currentDate) + " : Started to logging." + "\n")
   
@@ -349,7 +377,8 @@ if __name__ == '__main__':
   
   # ROS settings ----------------------------------------------------------------------------------#
   rospy.init_node('level1_node', anonymous=True)            # Initialize node
-  rate = rospy.Rate(50)                                     # Sampling time [Hz]
+  rospy.on_shutdown(rospy_shutdown)
+  rate = rospy.Rate(20)                                     # Sampling time [Hz]
 
   # Publisher settings
   initJointStates()
@@ -406,6 +435,8 @@ if __name__ == '__main__':
   # 周期処理開始
   try:
     while True:
+      start_date = datetime.datetime.today()
+      
       # 制御処理
       # arduino.cmd_wrk(arduino.dx_cmd_x10[0], arduino.dx_cmd_x10[1], arduino.dx_cmd_x10[2])
       if(dir == 0):
@@ -416,33 +447,37 @@ if __name__ == '__main__':
         yy -= 50
       if(xx >= 5000): dir = 1
       if(xx <= 2500): dir = 0
-      arduino.conFM.write('vel,{:0=3}'.format(int(arduino.sample_num_host)) + ',' + '{:0=+5}'.format(int(xx)) + ',' + '{:0=+5}'.format(int(yy)) + ',end')
-      arduino.conRM.write('vel,{:0=3}'.format(int(arduino.sample_num_host)) + ',' + '{:0=+5}'.format(int(xx)) + ',' + '{:0=+5}'.format(int(yy)) + ',end')
+      
+      arduino.conFM.write('vel,{:0=3}'.format(int(arduino.sample_num_host)) + ',' + '{:0=+5}'.format(int(arduino.ws_dir[0] * xx)) + ',' + '{:0=+5}'.format(int(arduino.ws_dir[1] * yy)) + ',end')
+      arduino.conRM.write('vel,{:0=3}'.format(int(arduino.sample_num_host)) + ',' + '{:0=+5}'.format(int(arduino.ws_dir[2] * xx)) + ',' + '{:0=+5}'.format(int(arduino.ws_dir[3] * yy)) + ',end')
       
       # 現在の日時を取得
       currentDate = datetime.datetime.today()
-      
       
       # 読み取りデータをファイルに書き込み
       # arduino.readMEGA()
       arduino.readFM()
       arduino.readRM()
       
-      log_file.flush()                            # ログファイルへの書き込みを反映
+      # log_file.flush()                            # ログファイルへの書き込みを反映
       
       # Publish information
-      publishDriveInformation()
-      publishImuMsg()
-      publishMagMsg()
-      pub10cnt += 1
-      if pub10cnt >= 10:
-        pub10cnt = 0
-        publishBatteryStateMsg()
-        publishSensorStateMsg()
-        publishVersionInfoMsg()
+      # publishDriveInformation()
+      # publishImuMsg()
+      # publishMagMsg()
+      # pub10cnt += 1
+      # if pub10cnt >= 10:
+        # pub10cnt = 0
+        # publishBatteryStateMsg()
+        # publishSensorStateMsg()
+        # publishVersionInfoMsg()
       
       # arduino.print_odom()
-      arduino.print_state()
+      # arduino.print_state()
+      
+      stop_date = datetime.datetime.today()
+      print((stop_date - start_date).microseconds)
+      
       rate.sleep()
   
   except KeyboardInterrupt:
