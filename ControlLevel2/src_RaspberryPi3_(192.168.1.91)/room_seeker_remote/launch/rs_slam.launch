@@ -1,0 +1,24 @@
+<launch>
+  <!-- Arguments -->
+  <arg name="model" default="RoomSeeker" doc="model type"/>
+  <arg name="slam_methods" default="gmapping" doc="slam type [gmapping, cartographer, hector, karto, frontier_exploration]"/>
+  <arg name="configuration_basename" default="room_seeker_lds_2d.lua"/>
+  <arg name="open_rviz" default="true"/>
+
+  <!-- RoomSeeker -->
+  <include file="$(find room_seeker_remote)/launch/rs_remote.launch">
+    <arg name="model" value="$(arg model)" />
+  </include>
+
+  <!-- SLAM: Gmapping, Cartographer, Hector, Karto, Frontier_exploration, RTAB-Map -->
+  <include file="$(find room_seeker_remote)/launch/rs_$(arg slam_methods).launch">
+    <arg name="model" value="$(arg model)"/>
+    <arg name="configuration_basename" value="$(arg configuration_basename)"/>
+  </include>
+
+  <!-- rviz -->
+  <group if="$(arg open_rviz)"> 
+    <node pkg="rviz" type="rviz" name="rviz" required="true"
+          args="-d $(find room_seeker_remote)/rviz/rs_$(arg slam_methods).rviz"/>
+  </group>
+</launch>

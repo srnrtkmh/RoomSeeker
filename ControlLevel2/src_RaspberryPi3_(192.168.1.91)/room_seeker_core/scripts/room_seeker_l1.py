@@ -11,6 +11,7 @@
 #           2021/01/16 モーターコントロールノードを追加し始める                                    #
 #           2021/01/18 Added inverse kinematics program                                            #
 #           2021/01/21 Added sensor node communication program                                     #
+#           2021/01/28 Bug fix in reading process from sensor node                                 #
 #                                                                                                  #
 #                                                                       (C) 2020 Kyohei Umemoto    #
 #                                                                                                  #
@@ -20,8 +21,11 @@
 # Import Module                                                                                    #
 #==================================================================================================#
 import numpy as np    # For matrix calculation
-from math import *    # 算術演算用モジュール
+from math import *    # For mathematical operation
 
+#==================================================================================================#
+# Constants                                                                                        #
+#==================================================================================================#
 PSB_SELECT      = 0x0001
 PSB_L3          = 0x0002
 PSB_R3          = 0x0004
@@ -78,6 +82,7 @@ class RoomSeekerLevel1():
     self.sample_num_ul = 999                            # Upper limit of sample number
     self.sample_num_ll = 0                              # Lower limit of sample number
     self.dt = 0.02                                      # Sampling time of the motor controller
+    self.ros_rate = 1/self.dt                           # Set value for rospy.Rate()
     self.ws_dir = np.array([-1.0, 1.0, -1.0, 1.0])      # Wheelspace direction co-efficient
     self.cnt_now = np.array([0.0, 0.0, 0.0, 0.0])       # Wheel encoder counted value
     self.omega_res = np.array([0.0, 0.0, 0.0, 0.0])     # Wheel space velocity response [rad/s]
@@ -116,7 +121,7 @@ class RoomSeekerLevel1():
     self.gz_hpf = 0.0                                   # Gyro z-axis applied HPF [rad/s]
     self.gz_hpf_tmp = 0.0                               # Temporary for HPF [rad/s]
     self.int_gz_hpf = 0.0                               # Integral of gz applied HPF [rad]
-    self.g_gz = 6.0                                     # Cutoff angular frequency of HPF for gyro sensor [rad/s]
+    self.g_gz = 1.0                                     # Cutoff angular frequency of HPF for gyro sensor [rad/s]
     self.mx = 0                                         # Mag x-axis
     self.my = 0                                         # Mag y-axis
     self.mz = 0                                         # Mag z-axis
@@ -128,7 +133,7 @@ class RoomSeekerLevel1():
     #self.my_offset = -81.559509                         # Offset of Mag y-axis
     self.my_offset = -25.0                              # Offset of Mag y-axis
     self.mr_offset = 177.26162                          # Radius of Mag x-y circle
-    self.g_mag = 6.0                                    # Cutoff angular frequency of LPF for magnetosensor [rad/s]
+    self.g_mag = 1.0                                    # Cutoff angular frequency of LPF for magnetosensor [rad/s]
     self.temp = 0                                       # Temperature
     self.us_dist = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]) # Distance from ultra sonic sensor
     self.us_ok = 0                                      # Ultrasonic sensor is enabled or not
@@ -214,13 +219,13 @@ class RoomSeekerLevel1():
     self.x_res_[2] = atan2(self.my_lpf - self.my_offset, self.mx_lpf - self.mx_offset)
     self.x_res[2] = atan2(self.my_lpf - self.my_offset, self.mx_lpf - self.mx_offset) + self.int_gz_hpf
   
-  def odometry_update_cmd(self):
+  def odometry_update_cmd(self): # Not in use it cannnot estimate pose enough precision
     self.x_res2[0] += self.dt * (self.dx_cmd_x10[0] / 10.0 / 1000.0 * cos(self.x_res[2]) - self.dx_cmd_x10[1] / 10.0 / 1000.0 * sin(self.x_res[2]))
     self.x_res2[1] += self.dt * (self.dx_cmd_x10[0] / 10.0 / 1000.0 * sin(self.x_res[2]) + self.dx_cmd_x10[1] / 10.0 / 1000.0 * sin(self.x_res[2]))
     self.x_res2[2] += self.dt * (self.dx_cmd_x10[2] / 10.0 * self.pi / 180.0)
   
   def print_odom(self):
-    print('OdomRes : {:=7.2f}, {:=7.2f}, {:=7.3f}, Battery = {:=2.2f}'.format(self.x_res[0], self.x_res[1], self.x_res[2], self.bat_vol))
+    print('OdomRes : {:=7.2f}, {:=7.2f}, {:=7.3f}, Battery = {:=2.2f}'.format(self.x_res[0], self.x_res[1], self.x_res[2]/3.141592*180.0, self.bat_vol))
     # print('OdomCmd : {:=7.2f}, {:=7.2f}, {:=7.3f}'.format(self.x_res2[0], self.x_res2[1], self.x_res2[2]))
   
   def fwd_kine(self):
@@ -374,7 +379,7 @@ class RoomSeekerLevel1():
           print("Error in read MEGA: " + str(sample_err) + ": ")
           print(tmp_list[i])
       
-      self.before_nokoriMEGA = tmp_list[len(tmp_list) - 1] # 次ループに回す余りを保存
+    self.before_nokoriMEGA = tmp_list[len(tmp_list) - 1] # 次ループに回す余りを保存
 
   def readFM(self):
     # Initialize variables

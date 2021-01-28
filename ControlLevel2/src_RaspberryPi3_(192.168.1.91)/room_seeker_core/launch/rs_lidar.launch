@@ -1,0 +1,12 @@
+<launch>
+  <arg name="set_frame_id" default="base_scan"/>
+
+  <node name="rplidarNode" pkg="rplidar_ros" type="rplidarNode" output="screen">
+    <param name="serial_port"         type="string" value="/dev/serial/by-path/platform-3f980000.usb-usb-0:1.5:1.0-port0"/>
+    <param name="serial_baudrate"     type="int"    value="115200"/><!--A1/A2 -->
+    <param name="frame_id"            type="string" value="$(arg set_frame_id)"/>
+    <param name="inverted"            type="bool"   value="false"/>
+    <param name="angle_compensate"    type="bool"   value="true"/>
+  </node>
+</launch>
+

@@ -1,0 +1,9 @@
+<launch>
+  <arg name="multi_robot_name" default=""/>
+  <arg name="argParam" default="true" />
+
+  <node pkg="room_seeker_core" type="room_seeker_core_v1.py" name="room_seeker_core" output="screen">
+  　　<param name="argParam" value="/dev/ttyACM0"/>
+  </node>
+</launch>
+

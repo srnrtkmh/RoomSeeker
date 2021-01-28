@@ -11,6 +11,7 @@
 # Updated : 2021/01/16 : Startded this project based on "turtlebot3_core_v2.py"                    #
 #           2021/01/18 : Added inverse kinematics program                                          #
 #           2021/01/22 : Added sensor node communication program                                   #
+#           2021/01/28 : Clean codes                                                               #
 #                                                                                                  #
 #                                                                       (C) 2021 Kyohei Umemoto    #
 # How to execute :                                                                                 #
@@ -41,16 +42,13 @@
 #==================================================================================================#
 # Import Module                                                                                    #
 #==================================================================================================#
-import sys            # sys(exit()の使用, 引数取得のために必要)
-import os             # OS(ファイルの各種処理のために必要)
-import locale         # local(!)
-import datetime       # datetimeモジュール
-import time           # 時刻取得用モジュール
-import threading      # マルチスレッドプログラミング用モジュール
-from math import *    # 算術演算用モジュール
-import serial         # Arduinoとの通信で使用するシリアル通信用モジュール
-import signal         # シグナル受信に使用するモジュール
-import shutil         # ディレクトリが空でなくても削除するために使うモジュール
+import sys            # To use exit() and to get command line arguments
+import time           # To use sleep function
+import datetime       # To get datetime
+import threading      # For multi thread programming
+from math import *    # For mathematical operation
+import serial         # To communicate with arduino through serial interface
+import signal         # To receive signal
 import numpy as np    # For matrix calculation
 
 import rospy
@@ -114,8 +112,9 @@ pub10cnt = 0
 # twistCallBack                                                                                    #
 #==================================================================================================#
 def twistCallBack(twist):
-  arduino.dx_cmd_x10[0] = twist.linear.x * 1000.0 * 10.0;
-  arduino.dx_cmd_x10[2] = twist.angular.z / 3.141592 * 180.0 * 10.0;
+  arduino.dx_cmd[0] = twist.linear.x;
+  arduino.dx_cmd[1] = twist.linear.y;
+  arduino.dx_cmd[2] = twist.angular.z;
   # rospy.loginfo("x:%f, y:%f, z:%f, a:%f, b:%f, c:%f", twist.linear.x, twist.linear.y, twist.linear.z, twist.angular.x, twist.angular.y, twist.angular.z)
 
 #==================================================================================================#
@@ -214,8 +213,9 @@ def publishDriveInformation():
   br.sendTransform((arduino.x_res[0], arduino.x_res[1], 0.0),
                    tf.transformations.quaternion_from_euler(0.0, 0.0, arduino.x_res[2]),
                    rospy.Time.now(),
-                   odom_child_frame_id,
-                   "world")
+                   odom.child_frame_id,
+                   odom.header.frame_id)
+                   # "world")
 
   # joint states
   joint_states.header.stamp = rospy.Time.now();
@@ -327,12 +327,12 @@ if __name__ == '__main__':
   th_key.start()
   
   # ログファイルを開く
-  log_file_name = unicode("/home/kyohei/catkin_ws/src/room_seeker/room_seeker_test/scripts/log/" + preffix + currentDate.strftime('%Y_%m_%d_%H_%M_%S') + suffix + ".log", encoding='shift-jis')
+  log_file_name = unicode("/home/kyohei/catkin_ws/src/room_seeker/room_seeker_core/scripts/log/" + preffix + currentDate.strftime('%Y_%m_%d_%H_%M_%S') + suffix + ".log", encoding='shift-jis')
   log_file = open(log_file_name, 'w')
   log_file.write(str(currentDate) + " : Started to logging." + "\n")
   
   # データファイルを開く
-  strCsvName = unicode("/home/kyohei/catkin_ws/src/room_seeker/room_seeker_test/scripts/data/" + preffix + currentDate.strftime('%Y_%m_%d_%H_%M_%S') + suffix + ".csv", encoding='shift-jis')
+  strCsvName = unicode("/home/kyohei/catkin_ws/src/room_seeker/room_seeker_core/scripts/data/" + preffix + currentDate.strftime('%Y_%m_%d_%H_%M_%S') + suffix + ".csv", encoding='shift-jis')
   data_file = open(strCsvName, 'w')
   data_file.write("time,nMEGA,nFM,nRM,cnt_now[0],cnt_now[1],cnt_now[2],cnt_now[3]"
     + ",omega_res[0],omega_res[1],omega_res[2],omega_res[3]"
@@ -347,7 +347,7 @@ if __name__ == '__main__':
   
   # ROS settings ----------------------------------------------------------------------------------#
   rospy.init_node('level1_node', anonymous=True)            # Initialize node
-  rate = rospy.Rate(50)                                     # Sampling time [Hz]
+  rate = rospy.Rate(arduino.ros_rate)                       # Sampling time [Hz]
 
   # Publisher settings
   initJointStates()
