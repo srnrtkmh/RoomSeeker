@@ -1,6 +1,0 @@
-2020-10-31 22:26:00.388342 : Started to logging.
-2020-10-31 22:26:00.388342 : New file opened successfully. File name = ./MotorControl_with_Lidar2020_10_31_22_26_00.csv
-2020-10-31 22:26:00.388342 : ROS Settings finished.
-2020-10-31 22:26:00.388342 : Serial port opened successfully. Port name = /dev/ttyACM0
-2020-10-31 22:26:00.388342 : Start command transmitted (1st try).
-2020-10-31 22:26:00.388342 : Start command echo back received.

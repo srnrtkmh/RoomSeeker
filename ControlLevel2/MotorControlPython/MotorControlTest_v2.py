@@ -3,7 +3,7 @@
 #==================================================================================================#
 #                                                                                                  #
 # FILE : MotorControlTest_v2.py                                                                    #
-# Memo : Motor control test program in constant velocity command                                   #
+# Memo : Motor control test program in constant velocity command in "Workspace"                    #
 #                                                                                                  #
 # Updated : 2020/09/20 Started this project based on "MotorControlTest_v1.py"                      #
 #                                                                                                  #
