@@ -1,3 +1,6 @@
+################################################################################
+# Set minimum required version of cmake, project name and compile options
+################################################################################
 cmake_minimum_required(VERSION 3.0.2)
 project(room_seeker_core)
 
@@ -11,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  room_seeker_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -49,8 +53,8 @@ find_package(catkin REQUIRED COMPONENTS
 ## Generate messages in the 'msg' folder
 # add_message_files(
 #   FILES
-#   Message1.msg
-#   Message2.msg
+#   SensorState.msg
+#   VersionInfo.msg
 # )
 
 ## Generate services in the 'srv' folder
@@ -105,7 +109,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES room_seeker
-#  CATKIN_DEPENDS roscpp rospy std_msgs
+  CATKIN_DEPENDS roscpp rospy std_msgs sensor_msgs room_seeker_msgs
 #  DEPENDS system_lib
 )
 

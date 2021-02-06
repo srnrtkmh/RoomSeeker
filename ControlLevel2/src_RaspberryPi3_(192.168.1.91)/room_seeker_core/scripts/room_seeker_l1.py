@@ -26,6 +26,7 @@ from math import *    # For mathematical operation
 #==================================================================================================#
 # Constants                                                                                        #
 #==================================================================================================#
+# PS2 controller constants
 PSB_SELECT      = 0x0001
 PSB_L3          = 0x0002
 PSB_R3          = 0x0004
@@ -46,6 +47,10 @@ PSB_TRIANGLE    = 0x1000
 PSB_CIRCLE      = 0x2000
 PSB_CROSS       = 0x4000
 PSB_SQUARE      = 0x8000
+
+# Control Mode constants
+MODE_TWIST = 0
+MODE_PS2   = 1
 
 #==================================================================================================#
 # Descriminate the literal is integer or not                                                       #
@@ -74,7 +79,7 @@ def is_hex(s):
 #==================================================================================================#
 class RoomSeekerLevel1():
   def __init__(self):
-    self.mode = 0                                       # Controll mode 0 : command mode , 1 : PS2 controller mode
+    self.mode = MODE_TWIST                              # Controll mode 0 : command mode , 1 : PS2 controller mode
     self.sample_num_node_MEGA = 0                       # Sample number of the Arduino MEGA
     self.sample_num_node_FM = 0                         # Sample number of the Front Motor Controller
     self.sample_num_node_RM = 0                         # Sample number of the Rear Motor Controller
@@ -132,6 +137,7 @@ class RoomSeekerLevel1():
     self.mx_offset =  70.0                               # Offset of Mag x-axis
     #self.my_offset = -81.559509                         # Offset of Mag y-axis
     self.my_offset = -25.0                              # Offset of Mag y-axis
+    self.mz_offset = 0.0                                # Offset of Mag y-axis
     self.mr_offset = 177.26162                          # Radius of Mag x-y circle
     self.g_mag = 1.0                                    # Cutoff angular frequency of LPF for magnetosensor [rad/s]
     self.temp = 0                                       # Temperature
@@ -157,6 +163,13 @@ class RoomSeekerLevel1():
     self.before_nokoriMEGA = ''
     self.before_nokoriFM = ''
     self.before_nokoriRM = ''
+    
+    # Power control
+    self.control_on = 0
+    self.no_input_from_ps2 = 0
+    self.no_input_from_ps2_cnt = 0
+    self.no_input_from_twist = 0
+    self.no_input_from_twist_cnt = 0
   
   def print_state(self):
     print('sample_num_node = ' + str(self.sample_num_node_FM))
@@ -215,9 +228,9 @@ class RoomSeekerLevel1():
     self.dx_res = np.dot(self.J_inv_plus, omega_rad)
     self.x_res[0] += self.dt * (self.dx_res[0] * cos(self.x_res[2]) - self.dx_res[1] * sin(self.x_res[2]))
     self.x_res[1] += self.dt * (self.dx_res[0] * sin(self.x_res[2]) + self.dx_res[1] * cos(self.x_res[2]))
-    #self.x_res_[2] += self.dt * (self.dx_res[2])
     self.x_res_[2] = atan2(self.my_lpf - self.my_offset, self.mx_lpf - self.mx_offset)
-    self.x_res[2] = atan2(self.my_lpf - self.my_offset, self.mx_lpf - self.mx_offset) + self.int_gz_hpf
+    # self.x_res[2] = atan2(self.my_lpf - self.my_offset, self.mx_lpf - self.mx_offset) + self.int_gz_hpf
+    self.x_res[2] += self.dt * (self.dx_res[2])
   
   def odometry_update_cmd(self): # Not in use it cannnot estimate pose enough precision
     self.x_res2[0] += self.dt * (self.dx_cmd_x10[0] / 10.0 / 1000.0 * cos(self.x_res[2]) - self.dx_cmd_x10[1] / 10.0 / 1000.0 * sin(self.x_res[2]))

@@ -4,18 +4,20 @@
 #                                                                                                  #
 # FILE : room_seeker_core_v1.py                                                                    #
 # Memo : The core program for RoomSeeker                                                           #
-#        *前後輪4輪分の制御                                                                        #
-#        *オドメトリ計算                                                                           #
-#        *センサデータ収集(IRセンサ、超音波センサ、IMU、PS2)                                       #
+#          * Control the all motors of mecanum wheels                                              #
+#          * Calculate the odometry                                                                #
+#          * Collect sensor data (IR sensor, Ultra sonic sensor, IMU, PS2 controller)              #
 #                                                                                                  #
 # Updated : 2021/01/16 : Startded this project based on "turtlebot3_core_v2.py"                    #
 #           2021/01/18 : Added inverse kinematics program                                          #
 #           2021/01/22 : Added sensor node communication program                                   #
 #           2021/01/28 : Clean codes                                                               #
+#           2021/01/31 : Added room_seeker msgs based on turtlebot3_msgs                           #
+#           2021/02/06 : Send stop command if the robot don't receive command for a while          #
 #                                                                                                  #
 #                                                                       (C) 2021 Kyohei Umemoto    #
 # How to execute :                                                                                 #
-#     rosrun turtlebot3_bringup turtlebot3_core_v1.py [Serial device name]                         #
+#     rosrun room_seeker_core room_seeker_core_v1.py [Serial device name]                          #
 #         or                                                                                       #
 #     nohup python turtlebot3_core_v1.py [Serial device name] > [tty????.txt] &                    #
 #                                                                                                  #
@@ -57,27 +59,30 @@ from std_msgs.msg import String
 from geometry_msgs.msg import Point, Pose, Quaternion, Twist, Vector3, TransformStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState, Imu, MagneticField, BatteryState
-from turtlebot3_msgs.msg import SensorState, VersionInfo
+# from turtlebot3_msgs.msg import SensorState, VersionInfo
+from room_seeker_msgs.msg import SensorState, VersionInfo
 
 from room_seeker_l1 import *
 
 #==================================================================================================#
 # Global variables                                                                                 #
 #==================================================================================================#
-serDevNameMEGA = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.4:1.0"      # Upper Right USB port : Arduino Mega
-serDevNameFM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.2:1.0-port0"  # Upper Left USB port  : Front Motor Controller
-serDevNameRM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.3:1.0-port0"  # Lower Left USB port  : Rear Motor Controller
-baudrate = 230400                   # ボーレート設定
-data_file = []                      # CSV出力用ファイルオブジェクト
-strCsvName = ""                     # ファイル名用変数
-preffix = "MotorControl_with_Lidar" # ファイル名プレフィックス
+# Serial settings ---------------------------------------------------------------------------------#
+serDevNameMEGA = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.4:1.0"        # Upper Right USB port : Arduino Mega
+serBaudrateMEGA = 115200
+#serDevNameFM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.2:1.0-port0"    # Upper Left USB port  : Front Motor Controller
+serDevNameFM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.3.1:1.0-port0"  # Upper Left USB port  : Front Motor Controller
+serBaudrateFM = 115200
+#serDevNameRM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.3:1.0-port0"    # Lower Left USB port  : Rear Motor Controller
+serDevNameRM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.3.2:1.0-port0"  # Lower Left USB port  : Rear Motor Controller
+serBaudrateRM = 115200
+
+# Data file settings ------------------------------------------------------------------------------#
+preffix = "RoomSeekerData" # ファイル名プレフィックス
 suffix = ""                         # ファイル名サフィックス
-before_nokori = ""
-sample_err = 0
-sample_err_num = 0
 
 # ROS publish variables ---------------------------------------------------------------------------#
-# Message variables
+## Message variables
 odom = Odometry()
 br = tf.TransformBroadcaster()
 joint_states = JointState()
@@ -88,20 +93,16 @@ battery_state = 0
 sensor_state_msg = SensorState()
 version_info_msg = VersionInfo()
 
-# Frame ID
+## Frame ID
 odom_header_frame_id = "/odom"
 odom_child_frame_id = "/base_footprint"
 joint_state_header_frame_id = "/base_link"
 imu_frame_id = "/imu_link"
 mag_frame_id = "/mag_link"
 
-# The others
-WHEEL_NUM = 4
-FRONT_RIGHT = 0
-FRONT_LEFT  = 1
-REAR_RIGHT  = 2
-REAR_LEFT   = 3
+## The others
 BAT_CAPA    = 6.5
+MIN_VOLT    = 6.8
 MAX_VOLT    = 8.4
 HARDWARE_VER = "0.0.0"
 SOFTWARE_VER = "0.0.0"
@@ -112,9 +113,12 @@ pub10cnt = 0
 # twistCallBack                                                                                    #
 #==================================================================================================#
 def twistCallBack(twist):
-  arduino.dx_cmd[0] = twist.linear.x;
-  arduino.dx_cmd[1] = twist.linear.y;
-  arduino.dx_cmd[2] = twist.angular.z;
+  arduino.dx_cmd[0] = twist.linear.x
+  arduino.dx_cmd[1] = twist.linear.y
+  arduino.dx_cmd[2] = twist.angular.z
+  arduino.control_on = 1
+  arduino.no_input_from_twist = 0
+  arduino.no_input_from_twist_cnt = 0
   # rospy.loginfo("x:%f, y:%f, z:%f, a:%f, b:%f, c:%f", twist.linear.x, twist.linear.y, twist.linear.z, twist.angular.x, twist.angular.y, twist.angular.z)
 
 #==================================================================================================#
@@ -124,16 +128,16 @@ def twistCallBack(twist):
 def publishImuMsg():
   imu_msg.header.stamp          = rospy.Time.now()
   imu_msg.header.frame_id       = imu_frame_id
-  imu_msg.orientation.x         = 0.0
-  imu_msg.orientation.y         = 0.0
-  imu_msg.orientation.z         = 1.0
-  imu_msg.orientation.w         = 0.0
-  imu_msg.angular_velocity.x    = 0.0
-  imu_msg.angular_velocity.y    = 0.0
-  imu_msg.angular_velocity.z    = 0.0
-  imu_msg.linear_acceleration.x = 0.0
-  imu_msg.linear_acceleration.y = 0.0
-  imu_msg.linear_acceleration.z = 0.0
+  imu_msg.orientation.x         = arduino.mx - arduino.mx_offset
+  imu_msg.orientation.y         = arduino.my - arduino.my_offset
+  imu_msg.orientation.z         = arduino.mz - arduino.mz_offset
+  imu_msg.orientation.w         = sqrt(arduino.mx**2 + arduino.my**2 + arduino.mz**2)
+  imu_msg.angular_velocity.x    = arduino.gx
+  imu_msg.angular_velocity.y    = arduino.gy
+  imu_msg.angular_velocity.z    = arduino.gz
+  imu_msg.linear_acceleration.x = arduino.ax
+  imu_msg.linear_acceleration.y = arduino.ay
+  imu_msg.linear_acceleration.z = arduino.az
   imu_pub.publish(imu_msg);
 
 #==================================================================================================#
@@ -142,9 +146,9 @@ def publishImuMsg():
 def publishMagMsg():
   mag_msg.header.stamp    = rospy.Time.now()
   mag_msg.header.frame_id = mag_frame_id;
-  mag_msg.magnetic_field.x = 1.0;
-  mag_msg.magnetic_field.y = 2.0;
-  mag_msg.magnetic_field.z = 3.0;
+  mag_msg.magnetic_field.x = arduino.mx;
+  mag_msg.magnetic_field.y = arduino.my;
+  mag_msg.magnetic_field.z = arduino.mz;
   mag_pub.publish(mag_msg);
 
 #==================================================================================================#
@@ -152,7 +156,7 @@ def publishMagMsg():
 #==================================================================================================#
 def publishSensorStateMsg():
   sensor_state_msg.header.stamp = rospy.Time.now()
-  sensor_state_msg.battery = 0.0                      # ToDo
+  sensor_state_msg.battery = arduino.bat_vol
   sensor_state_msg.left_encoder = arduino.cnt_now[0]  
   sensor_state_msg.right_encoder = arduino.cnt_now[1]
   sensor_state_msg.bumper = 0                         # ToDo
@@ -179,8 +183,8 @@ def publishVersionInfoMsg():
 def publishBatteryStateMsg():
   battery_state_msg.header.stamp = rospy.Time.now()
   battery_state_msg.design_capacity = BAT_CAPA
-  battery_state_msg.voltage = 7.4                 # ToDo
-  battery_state_msg.percentage = battery_state_msg.voltage / MAX_VOLT
+  battery_state_msg.voltage = arduino.bat_vol
+  battery_state_msg.percentage = (battery_state_msg.voltage - MIN_VOLT) / (MAX_VOLT - MIN_VOLT)
   if battery_state == 0:
     battery_state_msg.present = False
   else:
@@ -220,7 +224,7 @@ def publishDriveInformation():
   # joint states
   joint_states.header.stamp = rospy.Time.now();
   joint_states.position = arduino.cnt_now / 22.0 / 30.0
-  joint_states.velocity = arduino.omega_res_x10 / 10.0
+  joint_states.velocity = arduino.omega_res
   joint_states_pub.publish(joint_states)
 
 #==================================================================================================#
@@ -228,7 +232,7 @@ def publishDriveInformation():
 #==================================================================================================#
 def initJointStates():
   joint_states.header.frame_id = joint_state_header_frame_id
-  joint_states.name            = ['Wheel_front_right_joint', 'Wheel_front_left_joint', 'Wheel_rear_right_joint', 'Wheel_rear_left_joint']
+  joint_states.name            = ['front_right_wheel_joint', 'front_left_wheel_joint', 'rear_right_wheel_joint', 'rear_left_wheel_joint']
   joint_states.position        = [0.0, 0.0, 0.0, 0.0]
   joint_states.velocity        = [0.0, 0.0, 0.0, 0.0]
   joint_states.effort          = [0.0, 0.0, 0.0, 0.0]
@@ -284,6 +288,8 @@ def key_input():
 
 #==================================================================================================#
 # Send start command to arduino via serial port                                                    #
+#   Argument con : serial console object to send start command                                     #
+#   Return       : None                                                                            #
 #==================================================================================================#
 def send_start(con):
   tmp_str = con.read(con.inWaiting())     # Read buffer to empty it
@@ -303,35 +309,42 @@ def send_start(con):
       time.sleep(0.5)                     # 3rd : Wait 0.5sec to receive callback (3rd)
       tmp_str = con.read(con.inWaiting()) # 3rd : Send start command 's' to serial port
       if len(tmp_str) <= 10:              # 3rd : Re-send start command if don't get callback
-        print "Serial Device did not transmit call back : " + tmp_str
+        print str(con.port) + " did not transmit call back : " + tmp_str
         con.write("t")                    # 3rd : Send stop command for make sure
         sys.exit(1)
+  tmp_str = con.read(con.inWaiting())     # Empty the receive buffer
   log_file.write(str(currentDate) + " : Start command echo back received.\n")
+
+#==================================================================================================#
+# continue_control_ps2()                                                                          #
+#   Argument : none                                                                                #
+#   Return   : none                                                                                #
+#==================================================================================================#
+def continue_control_ps2():
+  arduino.control_on = 1
+  arduino.no_input_from_ps2 = 0
+  arduino.no_input_from_ps2_cnt = 0
 
 #==================================================================================================#
 # Main Function                                                                                    #
 #==================================================================================================#
 if __name__ == '__main__':
-  # 引数処理
-  param = sys.argv                                  # 現時点何もなし
+  # Initialize
+  arduino = RoomSeekerLevel1()                  # Robot control variables (current)
+  signal.signal(signal.SIGINT, receive_signal)  # Signal setting
   
-  # 初期設定
-  currentDate = datetime.datetime.today()           # today()メソッドで現在日付・時刻のdatetime型データの変数を取得
-  arduino_pre = RoomSeekerLevel1()   # Robot control variables (previous)
-  arduino = RoomSeekerLevel1()       # Robot control variables (current)
-  signal.signal(signal.SIGINT, receive_signal)      # SIGINTを受け取ったら指定関数を呼び出すように設定
-  
-  # キーボード入力用スレッド作成
+  # Create the thread to get keyboard input
   th_key = threading.Thread(target=key_input)
   th_key.setDaemon(True)
   th_key.start()
   
-  # ログファイルを開く
+  # Open log file
+  currentDate = datetime.datetime.today() # Get current date
   log_file_name = unicode("/home/kyohei/catkin_ws/src/room_seeker/room_seeker_core/scripts/log/" + preffix + currentDate.strftime('%Y_%m_%d_%H_%M_%S') + suffix + ".log", encoding='shift-jis')
   log_file = open(log_file_name, 'w')
   log_file.write(str(currentDate) + " : Started to logging." + "\n")
   
-  # データファイルを開く
+  # Open data file
   strCsvName = unicode("/home/kyohei/catkin_ws/src/room_seeker/room_seeker_core/scripts/data/" + preffix + currentDate.strftime('%Y_%m_%d_%H_%M_%S') + suffix + ".csv", encoding='shift-jis')
   data_file = open(strCsvName, 'w')
   data_file.write("time,nMEGA,nFM,nRM,cnt_now[0],cnt_now[1],cnt_now[2],cnt_now[3]"
@@ -343,6 +356,7 @@ if __name__ == '__main__':
     + ",x_res[0],x_res[1],x_res[2],x_res_[2],int_gz_hpf"
     + ",ir_state,ax,ay,az,gx,gy,gz,gz_hpf,mx,my,mz,temp,bat_vol,ps2_button,ps2_analogRX,ps2_analogRY,ps2_analogLX,ps2_analogLY"
     + "\n")
+  currentDate = datetime.datetime.today()
   log_file.write(str(currentDate) + " : New file opened successfully. File name = " + strCsvName + "\n")
   
   # ROS settings ----------------------------------------------------------------------------------#
@@ -361,36 +375,37 @@ if __name__ == '__main__':
   
   # Subscriber settings
   sub = rospy.Subscriber('cmd_vel', Twist, twistCallBack)
+  currentDate = datetime.datetime.today()
   log_file.write(str(currentDate) + " : ROS Settings finished.\n")
   
   # Setup serial communication with ArduinoMEGA ---------------------------------------------------#
-  try: # ポートのオープン(timeoutの設定は適当、rtsctsとdsrdtrはTrueにしておかないとArduinoMicroとは通信できない)
-    arduino.conMEGA = serial.Serial(serDevNameMEGA, 115200, timeout=0, rtscts=True, dsrdtr=True)
+  try: # Set "rtscts" and "dsrdtr" to "True" if you communicate with Arduino Micro. if you use Arduino Nano, both is fine.
+    arduino.conMEGA = serial.Serial(serDevNameMEGA, serBaudrateMEGA, timeout=0, rtscts=True, dsrdtr=True)
     time.sleep(0.5)
   except serial.SerialException as e:
     print "SerialException : " + str(e)
     sys.exit(1)
-  tmp_str = arduino.conMEGA.read(arduino.conMEGA.inWaiting())     # 読み取りバッファを空にしておく
+  currentDate = datetime.datetime.today()
   log_file.write(str(currentDate) + " : Serial port opened successfully. Port name = " + arduino.conMEGA.portstr + "\n")
   
   # Setup serial communication with ArduinoFM -----------------------------------------------------#
-  try: # ポートのオープン(timeoutの設定は適当、rtsctsとdsrdtrはTrueにしておかないとArduinoMicroとは通信できない)
-    arduino.conFM = serial.Serial(serDevNameFM, 115200, timeout=0, rtscts=False, dsrdtr=False)
+  try: # Set "rtscts" and "dsrdtr" to "True" if you communicate with Arduino Micro. if you use Arduino Nano, both is fine.
+    arduino.conFM = serial.Serial(serDevNameFM, serBaudrateFM, timeout=0, rtscts=True, dsrdtr=True)
     time.sleep(0.5)
   except serial.SerialException as e:
     print "SerialException : " + str(e)
     sys.exit(1)
-  tmp_str = arduino.conFM.read(arduino.conFM.inWaiting())     # 読み取りバッファを空にしておく
+  currentDate = datetime.datetime.today()
   log_file.write(str(currentDate) + " : Serial port opened successfully. Port name = " + arduino.conFM.portstr + "\n")
   
   # Setup serial communication with ArduinoRM -----------------------------------------------------#
-  try: # ポートのオープン(timeoutの設定は適当、rtsctsとdsrdtrはTrueにしておかないとArduinoMicroとは通信できない)
-    arduino.conRM = serial.Serial(serDevNameRM, 115200, timeout=0, rtscts=False, dsrdtr=False)
+  try: # Set "rtscts" and "dsrdtr" to "True" if you communicate with Arduino Micro. if you use Arduino Nano, both is fine.
+    arduino.conRM = serial.Serial(serDevNameRM, serBaudrateRM, timeout=0, rtscts=True, dsrdtr=True)
     time.sleep(0.5)
   except serial.SerialException as e:
     print "SerialException : " + str(e)
     sys.exit(1)
-  tmp_str = arduino.conRM.read(arduino.conRM.inWaiting())     # 読み取りバッファを空にしておく
+  currentDate = datetime.datetime.today()
   log_file.write(str(currentDate) + " : Serial port opened successfully. Port name = " + arduino.conRM.portstr + "\n")
   
   # Send start command to arduino controller
@@ -398,25 +413,9 @@ if __name__ == '__main__':
   send_start(arduino.conFM)   # Send start command to arduino Front Motor
   send_start(arduino.conRM)   # Send start command to arduino Rear Motor
   
-  xx = 0
-  yy = 0
-  dir = 0
-  # 周期処理開始
+  # Start periodic process
   try:
     while True:
-      # For first test program
-      # if(dir == 0):
-        # xx += 50
-        # yy += 50
-      # else:
-        # xx -= 50
-        # yy -= 50
-      # if(xx >= 5000): dir = 1
-      # if(xx <= 2500): dir = 0
-      
-      # arduino.conFM.write('vel,{:0=3}'.format(int(arduino.sample_num_host)) + ',' + '{:0=+5}'.format(int(arduino.ws_dir[0] * xx)) + ',' + '{:0=+5}'.format(int(arduino.ws_dir[1] * yy)) + ',end')
-      # arduino.conRM.write('vel,{:0=3}'.format(int(arduino.sample_num_host)) + ',' + '{:0=+5}'.format(int(arduino.ws_dir[2] * xx)) + ',' + '{:0=+5}'.format(int(arduino.ws_dir[3] * yy)) + ',end')
-      
       start_date = datetime.datetime.today()
 
       # Sensing process ---------------------------------------------------------------------------#
@@ -425,7 +424,6 @@ if __name__ == '__main__':
       arduino.readRM()
       arduino.apply_filter()
       arduino.odometry_update_res()
-      log_file.flush()
       
       # Publish information
       publishDriveInformation()
@@ -437,28 +435,39 @@ if __name__ == '__main__':
         publishBatteryStateMsg()
         publishSensorStateMsg()
         publishVersionInfoMsg()
+        log_file.flush()
       
       # Control process ---------------------------------------------------------------------------#
       if((arduino.ps2_button & PSB_SELECT) != 0):
         print('PS2 mode reset')
-        arduino.mode = 0
+        arduino.mode = MODE_TWIST
         arduino.dx_cmd[0] = 0
         arduino.dx_cmd[1] = 0
         arduino.dx_cmd[2] = 0
+        arduino.no_input_from_ps2 = 1
+        arduino.no_input_from_twist = 0
+        arduino.no_input_from_twist_cnt = 0
         
       if((arduino.ps2_button & PSB_START) != 0):
         print('PS2 mode set')
-        arduino.mode = 1
+        arduino.mode = MODE_PS2
         arduino.dx_cmd[0] = 0
         arduino.dx_cmd[1] = 0
         arduino.dx_cmd[2] = 0
+        arduino.no_input_from_ps2 = 0
+        arduino.no_input_from_ps2_cnt = 0
+        arduino.no_input_from_twist = 1
       
-      if(arduino.mode == 0):
-        test = 0
-        
-      if(arduino.mode == 1):
+      if(arduino.mode == MODE_TWIST):
+        if arduino.no_input_from_twist == 0:
+          arduino.no_input_from_twist_cnt += 1
+          if arduino.no_input_from_twist_cnt >= 100:
+            arduino.no_input_from_twist = 1
+      
+      if(arduino.mode == MODE_PS2):
         # X axis command
         if((arduino.ps2_button & PSB_PAD_UP) != 0):
+          continue_control_ps2()
           if((arduino.ps2_button & PSB_CROSS) != 0):
             if((arduino.ps2_button & PSB_SQUARE) != 0):
               arduino.dx_cmd[0] = 0.3
@@ -468,6 +477,7 @@ if __name__ == '__main__':
             arduino.dx_cmd[0] = 0.1
             
         elif((arduino.ps2_button & PSB_PAD_DOWN) != 0):
+          continue_control_ps2()
           if((arduino.ps2_button & PSB_CROSS) != 0):
             if((arduino.ps2_button & PSB_SQUARE) != 0):
               arduino.dx_cmd[0] = -0.3
@@ -480,6 +490,7 @@ if __name__ == '__main__':
           
         # Y axis command
         if((arduino.ps2_button & PSB_PAD_LEFT) != 0):
+          continue_control_ps2()
           if((arduino.ps2_button & PSB_CROSS) != 0):
             if((arduino.ps2_button & PSB_SQUARE) != 0):
               arduino.dx_cmd[1] = 0.3
@@ -489,6 +500,7 @@ if __name__ == '__main__':
             arduino.dx_cmd[1] = 0.1
             
         elif((arduino.ps2_button & PSB_PAD_RIGHT) != 0):
+          continue_control_ps2()
           if((arduino.ps2_button & PSB_CROSS) != 0):
             if((arduino.ps2_button & PSB_SQUARE) != 0):
               arduino.dx_cmd[1] = -0.3
@@ -501,6 +513,7 @@ if __name__ == '__main__':
       
         # Rotation command
         if((arduino.ps2_button & PSB_L1) != 0):
+          continue_control_ps2()
           if((arduino.ps2_button & PSB_CROSS) != 0):
             if((arduino.ps2_button & PSB_SQUARE) != 0):
               arduino.dx_cmd[2] = 135.0 / 180.0 * 3.14
@@ -510,6 +523,7 @@ if __name__ == '__main__':
             arduino.dx_cmd[2] = 45.0 / 180.0 * 3.14
             
         elif((arduino.ps2_button & PSB_R1) != 0):
+          continue_control_ps2()
           if((arduino.ps2_button & PSB_CROSS) != 0):
             if((arduino.ps2_button & PSB_SQUARE) != 0):
               arduino.dx_cmd[2] = -135.0 / 180.0 * 3.14
@@ -519,35 +533,48 @@ if __name__ == '__main__':
             arduino.dx_cmd[2] = -45.0 / 180.0 * 3.14
         else:
           arduino.dx_cmd[2] = 0
+        
+        # PS2 no input judge
+        if arduino.no_input_from_ps2 == 0:
+          arduino.no_input_from_ps2_cnt += 1
+          if arduino.no_input_from_ps2_cnt >= 100:
+            arduino.no_input_from_ps2 = 1
+      
+      if arduino.control_on == 1:
+        if arduino.no_input_from_ps2 == 1 and arduino.no_input_from_twist == 1:
+          arduino.control_on = 0
+          arduino.conFM.write("ttttt")
+          arduino.conRM.write("ttttt")
       
       arduino.rate_limit_work()
       arduino.inv_kine()
-      arduino.command_motor_node()
+      if arduino.control_on == 1: arduino.command_motor_node()
+      else:                       arduino.conFM.write("t")
       
       # Data output process -----------------------------------------------------------------------#
-      data_file.write(currentDate.strftime("%Y/%m/%d %H:%M:%S") + ".%03d" % (currentDate.microsecond // 1000)
-        + ',' + str(arduino.sample_num_node_MEGA) + ',' + str(arduino.sample_num_node_FM) + ',' + str(arduino.sample_num_node_RM)
-        + ',' + str(arduino.cnt_now[0]) + ',' + str(arduino.cnt_now[1]) + ',' + str(arduino.cnt_now[2]) + ',' + str(arduino.cnt_now[3])
-        + ',' + str(arduino.omega_res[0]) + ',' + str(arduino.omega_res[1]) + ',' + str(arduino.omega_res[2]) + ',' + str(arduino.omega_res[3])
-        + ',' + str(arduino.omega_cmd[0]) + ',' + str(arduino.omega_cmd[1]) + ',' + str(arduino.omega_cmd[2]) + ',' + str(arduino.omega_cmd[3])
-        + ',' + str(arduino.vout[0]) + ',' + str(arduino.vout[1]) + ',' + str(arduino.vout[2]) + ',' + str(arduino.vout[3])
-        + ',' + str(arduino.dx_res[0]) + ',' + str(arduino.dx_res[1]) + ',' + str(arduino.dx_res[2])
-        + ',' + str(arduino.dx_cmd[0]) + ',' + str(arduino.dx_cmd[1]) + ',' + str(arduino.dx_cmd[2])
-        + ',' + str(arduino.x_res[0]) + ',' + str(arduino.x_res[1]) + ',' + str(arduino.x_res[2]) + ',' + str(arduino.x_res_[2]) + ',' + str(arduino.int_gz_hpf)
-        + ',' + bin(arduino.ir_hex) + ',' + str(arduino.ax) + ',' + str(arduino.ay) + ',' + str(arduino.az)
-        + ',' + str(arduino.gx) + ',' + str(arduino.gy) + ',' + str(arduino.gz) + ',' + str(arduino.gz_hpf)
-        + ',' + str(arduino.mx) + ',' + str(arduino.my) + ',' + str(arduino.mz) + ',' + str(arduino.temp)
-        + ',' + str(arduino.bat_vol) + ',' + str(arduino.ps2_button) + ',' + str(arduino.ps2_analogRX) + ',' + str(arduino.ps2_analogRY) + ',' + str(arduino.ps2_analogLX) + ',' + str(arduino.ps2_analogLY)
-        + '\n')
+      if arduino.control_on == 1:
+        currentDate = datetime.datetime.today()
+        data_file.write(currentDate.strftime("%Y/%m/%d %H:%M:%S") + ".%03d" % (currentDate.microsecond // 1000)
+          + ',' + str(arduino.sample_num_node_MEGA) + ',' + str(arduino.sample_num_node_FM) + ',' + str(arduino.sample_num_node_RM)
+          + ',' + str(arduino.cnt_now[0]) + ',' + str(arduino.cnt_now[1]) + ',' + str(arduino.cnt_now[2]) + ',' + str(arduino.cnt_now[3])
+          + ',' + str(arduino.omega_res[0]) + ',' + str(arduino.omega_res[1]) + ',' + str(arduino.omega_res[2]) + ',' + str(arduino.omega_res[3])
+          + ',' + str(arduino.omega_cmd[0]) + ',' + str(arduino.omega_cmd[1]) + ',' + str(arduino.omega_cmd[2]) + ',' + str(arduino.omega_cmd[3])
+          + ',' + str(arduino.vout[0]) + ',' + str(arduino.vout[1]) + ',' + str(arduino.vout[2]) + ',' + str(arduino.vout[3])
+          + ',' + str(arduino.dx_res[0]) + ',' + str(arduino.dx_res[1]) + ',' + str(arduino.dx_res[2])
+          + ',' + str(arduino.dx_cmd[0]) + ',' + str(arduino.dx_cmd[1]) + ',' + str(arduino.dx_cmd[2])
+          + ',' + str(arduino.x_res[0]) + ',' + str(arduino.x_res[1]) + ',' + str(arduino.x_res[2]) + ',' + str(arduino.x_res_[2]) + ',' + str(arduino.int_gz_hpf)
+          + ',' + bin(arduino.ir_hex) + ',' + str(arduino.ax) + ',' + str(arduino.ay) + ',' + str(arduino.az)
+          + ',' + str(arduino.gx) + ',' + str(arduino.gy) + ',' + str(arduino.gz) + ',' + str(arduino.gz_hpf)
+          + ',' + str(arduino.mx) + ',' + str(arduino.my) + ',' + str(arduino.mz) + ',' + str(arduino.temp)
+          + ',' + str(arduino.bat_vol) + ',' + str(arduino.ps2_button) + ',' + str(arduino.ps2_analogRX) + ',' + str(arduino.ps2_analogRY) + ',' + str(arduino.ps2_analogLX) + ',' + str(arduino.ps2_analogLY)
+          + '\n')
           
       # For debug information ---------------------------------------------------------------------#
-      # arduino.print_sensor()
-      # arduino.print_wrk()
-      # arduino.print_state()
-      arduino.print_odom()
-      
-      # 現在の日時を取得
-      currentDate = datetime.datetime.today()
+      if arduino.control_on == 1:
+        # arduino.print_sensor()
+        # arduino.print_wrk()
+        # arduino.print_state()
+        arduino.print_odom()
       
       stop_date = datetime.datetime.today()
       print((stop_date - start_date).microseconds)
