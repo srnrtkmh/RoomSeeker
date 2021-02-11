@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>room_seeker_msgs</name>
+  <version>0.0.0</version>
+  <description>The room_seeker_msgs package</description>
+  <license>Apache 2.0</license>
+  <author email="srnrtkmh@gmail.com">Kyohei Umemoto</author>
+  <maintainer email="srnrtkmh@gmail.com">Kyohei Umemoto</maintainer>
+  
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>std_msgs</depend>
+  <build_depend>message_generation</build_depend>
+  <build_export_depend>message_runtime</build_export_depend>
+  <exec_depend>message_runtime</exec_depend>
+</package>
