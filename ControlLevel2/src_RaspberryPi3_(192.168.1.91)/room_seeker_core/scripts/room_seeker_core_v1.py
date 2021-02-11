@@ -14,15 +14,14 @@
 #           2021/01/28 : Clean codes                                                               #
 #           2021/01/31 : Added room_seeker msgs based on turtlebot3_msgs                           #
 #           2021/02/06 : Send stop command if the robot don't receive command for a while          #
+#           2021/02/11 : Added service calling function 'stop_motor' & 'start_motor' of rplidar    #
 #                                                                                                  #
 #                                                                       (C) 2021 Kyohei Umemoto    #
 # How to execute :                                                                                 #
-#     rosrun room_seeker_core room_seeker_core_v1.py [Serial device name]                          #
-#         or                                                                                       #
-#     nohup python turtlebot3_core_v1.py [Serial device name] > [tty????.txt] &                    #
+#     rosrun room_seeker_core room_seeker_core_v1.py                                               #
 #                                                                                                  #
 # Argument Discription :                                                                           #
-#     Serial device name : Example "/dev/ttyACM0", "/dev/ttyUSB1"                                  #
+#     none                                                                                         #
 #                                                                                                  #
 # I/O assign :                                                                                     #
 # 01 : 3.3V                                       02 : 5.0V                                        #
@@ -55,7 +54,9 @@ import numpy as np    # For matrix calculation
 
 import rospy
 import tf
+import tf2_ros
 from std_msgs.msg import String
+from std_srvs.srv import Empty
 from geometry_msgs.msg import Point, Pose, Quaternion, Twist, Vector3, TransformStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState, Imu, MagneticField, BatteryState
@@ -70,11 +71,11 @@ from room_seeker_l1 import *
 # Serial settings ---------------------------------------------------------------------------------#
 serDevNameMEGA = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.4:1.0"        # Upper Right USB port : Arduino Mega
 serBaudrateMEGA = 115200
-#serDevNameFM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.2:1.0-port0"    # Upper Left USB port  : Front Motor Controller
-serDevNameFM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.3.1:1.0-port0"  # Upper Left USB port  : Front Motor Controller
+serDevNameFM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.2:1.0-port0"    # Upper Left USB port  : Front Motor Controller
+#serDevNameFM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.3.1:1.0-port0"  # Upper Left USB port  : Front Motor Controller
 serBaudrateFM = 115200
-#serDevNameRM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.3:1.0-port0"    # Lower Left USB port  : Rear Motor Controller
-serDevNameRM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.3.2:1.0-port0"  # Lower Left USB port  : Rear Motor Controller
+serDevNameRM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.3:1.0-port0"    # Lower Left USB port  : Rear Motor Controller
+#serDevNameRM = "/dev/serial/by-path/platform-3f980000.usb-usb-0:1.3.2:1.0-port0"  # Lower Left USB port  : Rear Motor Controller
 serBaudrateRM = 115200
 
 # Data file settings ------------------------------------------------------------------------------#
@@ -84,7 +85,8 @@ suffix = ""                         # ファイル名サフィックス
 # ROS publish variables ---------------------------------------------------------------------------#
 ## Message variables
 odom = Odometry()
-br = tf.TransformBroadcaster()
+#br = tf.TransformBroadcaster()
+br = tf2_ros.TransformBroadcaster()
 joint_states = JointState()
 imu_msg = Imu()
 mag_msg = MagneticField()
@@ -94,11 +96,11 @@ sensor_state_msg = SensorState()
 version_info_msg = VersionInfo()
 
 ## Frame ID
-odom_header_frame_id = "/odom"
-odom_child_frame_id = "/base_footprint"
-joint_state_header_frame_id = "/base_link"
-imu_frame_id = "/imu_link"
-mag_frame_id = "/mag_link"
+odom_header_frame_id = "odom"
+odom_child_frame_id = "base_footprint"
+joint_state_header_frame_id = "base_link"
+imu_frame_id = "imu_link"
+mag_frame_id = "mag_link"
 
 ## The others
 BAT_CAPA    = 6.5
@@ -110,13 +112,27 @@ FIRMWARE_VER = "0.0.0"
 pub10cnt = 0
 
 #==================================================================================================#
+# 
+#==================================================================================================#
+def start_rplidar_motor():
+  rospy.wait_for_service('start_motor')
+  try:
+    service_call = rospy.ServiceProxy('start_motor', Empty)
+    service_call()
+    print('called start_motor')
+  except rospy.ServiceException, e:
+    print ("Service call failed: %s" % e)
+
+#==================================================================================================#
 # twistCallBack                                                                                    #
 #==================================================================================================#
 def twistCallBack(twist):
   arduino.dx_cmd[0] = twist.linear.x
   arduino.dx_cmd[1] = twist.linear.y
   arduino.dx_cmd[2] = twist.angular.z
-  arduino.control_on = 1
+  if arduino.control_on == 0:
+    arduino.control_on = 1
+    start_rplidar_motor()
   arduino.no_input_from_twist = 0
   arduino.no_input_from_twist_cnt = 0
   # rospy.loginfo("x:%f, y:%f, z:%f, a:%f, b:%f, c:%f", twist.linear.x, twist.linear.y, twist.linear.z, twist.angular.x, twist.angular.y, twist.angular.z)
@@ -214,13 +230,27 @@ def publishDriveInformation():
   odom_pub.publish(odom)
 
   # odometry tf
-  br.sendTransform((arduino.x_res[0], arduino.x_res[1], 0.0),
-                   tf.transformations.quaternion_from_euler(0.0, 0.0, arduino.x_res[2]),
-                   rospy.Time.now(),
-                   odom.child_frame_id,
-                   odom.header.frame_id)
-                   # "world")
-
+  #br.sendTransform((arduino.x_res[0], arduino.x_res[1], 0.0),
+  #                 tf.transformations.quaternion_from_euler(0.0, 0.0, arduino.x_res[2]),
+  #                 rospy.Time.now(),
+  #                 odom.child_frame_id,
+  #                 odom.header.frame_id)
+  #                 # "world")
+  
+  t = TransformStamped()
+  t.header.stamp = rospy.Time.now()
+  t.header.frame_id = odom.header.frame_id
+  t.child_frame_id = odom.child_frame_id
+  t.transform.translation.x = arduino.x_res[0]
+  t.transform.translation.y = arduino.x_res[1]
+  t.transform.translation.z = 0.0
+  q = tf.transformations.quaternion_from_euler(0.0, 0.0, arduino.x_res[2])
+  t.transform.rotation.x = q[0]
+  t.transform.rotation.y = q[1]
+  t.transform.rotation.z = q[2]
+  t.transform.rotation.w = q[3]
+  br.sendTransform(t)
+  
   # joint states
   joint_states.header.stamp = rospy.Time.now();
   joint_states.position = arduino.cnt_now / 22.0 / 30.0
@@ -321,9 +351,26 @@ def send_start(con):
 #   Return   : none                                                                                #
 #==================================================================================================#
 def continue_control_ps2():
-  arduino.control_on = 1
+  if arduino.control_on == 0:
+    arduino.control_on = 1
+    start_rplidar_motor()
   arduino.no_input_from_ps2 = 0
   arduino.no_input_from_ps2_cnt = 0
+
+#==================================================================================================#
+# stop_control()                                                                                   #
+#==================================================================================================#
+def stop_control():
+  arduino.control_on = 0
+  arduino.conFM.write("ttttt")
+  arduino.conRM.write("ttttt")
+  rospy.wait_for_service('stop_motor')
+  try:
+    service_call = rospy.ServiceProxy('stop_motor', Empty)
+    service_call()
+    print('called stop_motor')
+  except rospy.ServiceException, e:
+    print ("Service call failed: %s" % e)
 
 #==================================================================================================#
 # Main Function                                                                                    #
@@ -412,6 +459,7 @@ if __name__ == '__main__':
   send_start(arduino.conMEGA) # Send start command to arduino MEGA
   send_start(arduino.conFM)   # Send start command to arduino Front Motor
   send_start(arduino.conRM)   # Send start command to arduino Rear Motor
+  stop_control()              # Stop control until input command
   
   # Start periodic process
   try:
@@ -437,7 +485,7 @@ if __name__ == '__main__':
         publishVersionInfoMsg()
         log_file.flush()
       
-      # Control process ---------------------------------------------------------------------------#
+      # Select control mode -----------------------------------------------------------------------#
       if((arduino.ps2_button & PSB_SELECT) != 0):
         print('PS2 mode reset')
         arduino.mode = MODE_TWIST
@@ -458,10 +506,11 @@ if __name__ == '__main__':
         arduino.no_input_from_ps2_cnt = 0
         arduino.no_input_from_twist = 1
       
+      # Control process ---------------------------------------------------------------------------#
       if(arduino.mode == MODE_TWIST):
         if arduino.no_input_from_twist == 0:
           arduino.no_input_from_twist_cnt += 1
-          if arduino.no_input_from_twist_cnt >= 100:
+          if arduino.no_input_from_twist_cnt >= 3000:
             arduino.no_input_from_twist = 1
       
       if(arduino.mode == MODE_PS2):
@@ -537,14 +586,12 @@ if __name__ == '__main__':
         # PS2 no input judge
         if arduino.no_input_from_ps2 == 0:
           arduino.no_input_from_ps2_cnt += 1
-          if arduino.no_input_from_ps2_cnt >= 100:
+          if arduino.no_input_from_ps2_cnt >= 3000:
             arduino.no_input_from_ps2 = 1
       
       if arduino.control_on == 1:
         if arduino.no_input_from_ps2 == 1 and arduino.no_input_from_twist == 1:
-          arduino.control_on = 0
-          arduino.conFM.write("ttttt")
-          arduino.conRM.write("ttttt")
+          stop_control()
       
       arduino.rate_limit_work()
       arduino.inv_kine()
@@ -574,10 +621,10 @@ if __name__ == '__main__':
         # arduino.print_sensor()
         # arduino.print_wrk()
         # arduino.print_state()
-        arduino.print_odom()
-      
-      stop_date = datetime.datetime.today()
-      print((stop_date - start_date).microseconds)
+        # arduino.print_odom()
+        stop_date = datetime.datetime.today()
+        print((stop_date - start_date).microseconds)
+
       
       rate.sleep()
   

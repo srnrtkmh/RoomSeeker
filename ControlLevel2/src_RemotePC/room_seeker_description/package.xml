@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>room_seeker_description</name>
+  <version>0.0.0</version>
+  <description>The room_seeker description package to provide tf inside robot and 3d model to rviz</description>
+  <maintainer email="srnrtkmh@gmail.com">kyohei</maintainer>
+  <license>Apache License 2.0</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>urdf</depend>
+  <depend>xacro</depend>
+</package>
+

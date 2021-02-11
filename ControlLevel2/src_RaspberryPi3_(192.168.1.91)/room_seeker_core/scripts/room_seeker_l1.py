@@ -86,7 +86,8 @@ class RoomSeekerLevel1():
     self.sample_num_host = 0                            # Sample number of the host
     self.sample_num_ul = 999                            # Upper limit of sample number
     self.sample_num_ll = 0                              # Lower limit of sample number
-    self.dt = 0.02                                      # Sampling time of the motor controller
+    self.dt = 0.01                                      # Sampling time of the motor controller
+    #self.dt = 0.1                                       # Sampling time of the motor controller
     self.ros_rate = 1/self.dt                           # Set value for rospy.Rate()
     self.ws_dir = np.array([-1.0, 1.0, -1.0, 1.0])      # Wheelspace direction co-efficient
     self.cnt_now = np.array([0.0, 0.0, 0.0, 0.0])       # Wheel encoder counted value

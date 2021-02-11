@@ -1,7 +1,7 @@
 <?xml version="1.0" ?>
-<robot name="room_seeker" xmlns:xacro="http://ros.org/wiki/xacro">
-  <xacro:include filename="$(find room_seeker_remote)/urdf/common_properties.xacro"/>
-  <xacro:include filename="$(find room_seeker_remote)/urdf/room_seeker.gazebo.xacro"/>
+<robot name="RoomSeeker" xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:include filename="$(find room_seeker_description)/urdf/common_properties.xacro"/>
+  <xacro:include filename="$(find room_seeker_description)/urdf/room_seeker.gazebo.xacro"/>
 
   <link name="base_footprint"/>
 
@@ -16,10 +16,10 @@
       <!-- <origin xyz="-0.064 0 0.0" rpy="0 0 0"/> -->
       <origin xyz="0.0 0.0 0.0173" rpy="0 0 0"/>
       <geometry>
-        <!-- <mesh filename="package://room_seeker_remote/meshes/bases/waffle_pi_base.stl" scale="0.001 0.001 0.001"/> -->
-        <mesh filename="package://room_seeker_remote/meshes/bases/MecanumCarBase.stl" scale="0.0001 0.0001 0.0001"/>
+        <!-- <mesh filename="package://room_seeker_description/meshes/bases/waffle_pi_base.stl" scale="0.001 0.001 0.001"/> -->
+        <mesh filename="package://room_seeker_description/meshes/bases/MecanumCarBase.stl" scale="0.0001 0.0001 0.0001"/>
       </geometry>
-      <material name="light_black"/>
+      <material name="brown"/>
     </visual>
 
     <collision>
@@ -51,7 +51,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://room_seeker_remote/meshes/wheels/RightMecanumWheel.stl" scale="0.00001 0.00001 0.00001"/>
+        <mesh filename="package://room_seeker_description/meshes/wheels/RightMecanumWheel.stl" scale="0.00001 0.00001 0.00001"/>
       </geometry>
       <material name="dark"/>
     </visual>
@@ -84,7 +84,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://room_seeker_remote/meshes/wheels/LeftMecanumWheel.stl" scale="0.0001 0.0001 0.0001"/>
+        <mesh filename="package://room_seeker_description/meshes/wheels/LeftMecanumWheel.stl" scale="0.0001 0.0001 0.0001"/>
       </geometry>
       <material name="dark"/>
     </visual>
@@ -117,7 +117,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://room_seeker_remote/meshes/wheels/RightMecanumWheel.stl" scale="0.00001 0.00001 0.00001"/>
+        <mesh filename="package://room_seeker_description/meshes/wheels/RightMecanumWheel.stl" scale="0.00001 0.00001 0.00001"/>
       </geometry>
       <material name="dark"/>
     </visual>
@@ -150,7 +150,7 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://room_seeker_remote/meshes/wheels/LeftMecanumWheel.stl" scale="0.0001 0.0001 0.0001"/>
+        <mesh filename="package://room_seeker_description/meshes/wheels/LeftMecanumWheel.stl" scale="0.0001 0.0001 0.0001"/>
       </geometry>
       <material name="dark"/>
     </visual>
@@ -190,7 +190,7 @@
     <visual>
       <origin xyz="0 0 0.0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://room_seeker_remote/meshes/sensors/lds.stl" scale="0.001 0.001 0.001"/>
+        <mesh filename="package://room_seeker_description/meshes/sensors/lds.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="dark"/>
     </visual>

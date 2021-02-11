@@ -1,0 +1,32 @@
+<launch>
+  <!-- Arguments -->
+  <arg name="model" default="RoomSeeker" doc="model type"/>
+  <arg name="multi_robot_name" default=""/>
+  <arg name="slam_methods" default="gmapping" doc="slam type [gmapping, cartographer, hector, karto, frontier_exploration]"/>
+  <arg name="configuration_basename" default="room_seeker_lds_2d.lua"/>
+  <arg name="open_rviz" default="true"/>
+
+  <!-- Include RoomSeeker model -->
+  <include file="$(find room_seeker_description)/launch/description.launch.xml">
+    <arg name="model" value="$(arg model)" />
+  </include>
+
+  <!-- * Launch Robot state publisher -->
+  <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher">
+    <param name="publish_frequency" type="double" value="50.0" />
+    <param name="tf_prefix" value="$(arg multi_robot_name)"/>
+  </node>
+
+  <!-- * Launch SLAM: Gmapping, Cartographer, Hector, Karto, Frontier_exploration, RTAB-Map -->
+  <include file="$(find room_seeker_slam)/launch/rs_$(arg slam_methods).launch">
+    <arg name="model" value="$(arg model)"/>
+    <arg name="configuration_basename" value="$(arg configuration_basename)"/>
+  </include>
+
+  <!-- * Launch rviz -->
+  <group if="$(arg open_rviz)"> 
+    <node pkg="rviz" type="rviz" name="rviz" required="true"
+          args="-d $(find room_seeker_slam)/rviz/rs_$(arg slam_methods).rviz"/>
+  </group>
+</launch>
+
