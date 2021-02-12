@@ -106,7 +106,7 @@ class RoomSeekerLevel1():
     self.dx_rate_limit = np.array([0.010, 0.010, 0.050])# Rate limit value in workspace [0 : m/20ms, 1 : m/20ms, 2 : rad/20ms]
     self.dx_cmd_rl = np.array([0.0, 0.0, 0.0])          # Workspace velocity command applied rate limit [0 : m/s, 1 : m/s, 2 : rad/s]
     self.dx_cmd_x10 = np.array([0.0, 0.0, 0.0])         # Workspace velocity command x10ver [0 : 10^-1m/s, 1 : 10^-1m/s, 2 : 10^-2deg/s]
-    self.wheel_radius = 38.0                            # Robot wheel radius [mm]
+    self.wheel_radius = 45.0                            # Robot wheel radius [mm]
     self.base_width =  215.0                            # Robot wheel base width [mm]
     self.base_length = 162.0                            # Robot wheel base length (between front and rear wheel shaft) [mm]
     self.J_inv = np.array([[1.0/(self.wheel_radius/1000.0),  1.0/(self.wheel_radius/1000.0),  ((self.base_width/1000.0) + (self.base_length/1000.0))/2.0/(self.wheel_radius/1000.0)]  # Inverse jacobian
