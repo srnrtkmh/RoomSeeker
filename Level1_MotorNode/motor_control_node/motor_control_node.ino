@@ -440,8 +440,8 @@ void loop() {
 
     // check if the end command received or not
     if (rec[rec_ptr - 2] == 'e' && rec[rec_ptr - 1] == 'n' && rec[rec_ptr] == 'd') {
-      Serial.print(rec);
-      Serial.print("\n");
+      // Serial.print(rec);
+      // Serial.print("\n");
       if (rec[0] == 'v' && rec[1] == 'e' && rec[2] == 'l')      read_wheel_vel_cmd(rec, rec_ptr, omega_cmd_x10);
       else if (rec[0] == 'v' && rec[1] == 'o' && rec[2] == 'l') read_vol_cmd(rec, rec_ptr, vol_cmd);
       else if (rec[0] == 'p' && rec[1] == 'r' && rec[2] == '1') read_pr1_cmd(rec, rec_ptr);

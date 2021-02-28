@@ -1,0 +1,19 @@
+<launch>
+  <arg name="multi_robot_name" default=""/>
+  <arg name="serial_port" default="/dev/serial/by-path/platform-3f980000.usb-usb-0:1.5:1.0-port0"/>
+  <arg name="set_lidar_frame_id" default="base_scan"/>
+
+  <include file="$(find room_seeker_core)/launch/room_seeker_core.launch">
+    <arg name="multi_robot_name" value="$(arg multi_robot_name)"/>
+  </include>
+
+  <include file="$(find room_seeker_core)/launch/room_seeker_lidar.launch">
+    <arg name="set_frame_id" value="$(arg set_lidar_frame_id)"/>
+    <arg name="serial_port" value="$(arg serial_port)"/>
+  </include>
+
+  <!--
+  <node pkg="room_seeker_core" type="room_seeker_diagnostics" name="room_seeker_diagnostics" output="screen"/>
+  -->
+</launch>
+

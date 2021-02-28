@@ -1,0 +1,17 @@
+<launch>
+  <arg name="multi_robot_name" default=""/>
+  <arg name="serDevNameMEGA" default="/dev/serial/by-path/platform-3f980000.usb-usb-0:1.4:1.0"/>
+  <arg name="serDevNameFM" default="/dev/serial/by-path/platform-3f980000.usb-usb-0:1.2:1.0-port0"/>
+  <arg name="serDevNameRM" default="/dev/serial/by-path/platform-3f980000.usb-usb-0:1.3:1.0-port0"/>
+  <arg name="logFileDir" default="$(find room_seeker_core)/log/"/>
+  <arg name="dataFileDir" default="$(find room_seeker_core)/data/"/>
+
+  <node pkg="room_seeker_core" type="room_seeker_core" name="room_seeker_core" output="screen">
+    <param name="serDevNameMEGA" type="string" value="$(arg serDevNameMEGA)"/>
+    <param name="serDevNameFM"   type="string" value="$(arg serDevNameFM)"/>
+    <param name="serDevNameRM"   type="string" value="$(arg serDevNameRM)"/>
+    <param name="logFileDir"     type="string" value="$(arg logFileDir)"/>
+    <param name="dataFileDir"    type="string" value="$(arg dataFileDir)"/>
+  </node>
+</launch>
+

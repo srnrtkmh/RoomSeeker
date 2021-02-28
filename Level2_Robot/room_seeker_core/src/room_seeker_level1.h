@@ -15,10 +15,16 @@
 //================================================================================================//
 // Import Module                                                                                  //
 //================================================================================================//
-#include <iostream>
+#include <stdio.h>
 #include <stdlib.h>
+#include <iostream>
+#include <math.h>
+#include <Eigen/Dense>
+#include <time.h>
+#include <sys/time.h>
+
+// For ROS
 #include <ros/ros.h>
-// #include <Eigen/Dense>
 #include <std_msgs/String.h>
 #include <std_srvs/Empty.h>
 #include <geometry_msgs/Vector3.h>
@@ -34,8 +40,8 @@
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <room_seeker_msgs/SensorState.h>
-#include <room_seeker_msgs/VersionInfo.h>
 
+#include <room_seeker_msgs/VersionInfo.h>
 // For serial communication
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -74,8 +80,8 @@
 #define MODE_PS2      1
 
 // The data type receive from level 1 node
-#define INT 0
-#define HEX 1
+#define INT_ 0
+#define HEX_ 1
 
 // The others
 #define BAT_CAPA     6.5
@@ -102,85 +108,64 @@ class RoomSeekerLevel1{
     int sample_num_node_MEGA;   // Sample number of the Arduino MEGA
     int sample_num_node_FM;     // Sample number of the Front Motor Controller
     int sample_num_node_RM;     // Sample number of the Rear Motor Controller
-    int sample_num_host;        // Sample number of the host
+    int sample_num_host;        // Sample number of the Host
     int sample_num_ul;          // Upper limit of sample number
     int sample_num_ll;          // Lower limit of sample number
-    double ws_dir[4];           // Wheelspace direction co-efficient
+    int ws_dir[4];              // Wheelspace direction co-efficient
     int cnt_now[4];             // Wheel encoder counted value
-    double omega_res[4];        // Wheel space velocity response [rad/s]
+    Eigen::Vector4f omega_res;  // Wheel space velocity response [rad/s]
     int omega_res_x10[4];       // Wheel space velocity response [10^-1deg/s]
-    double omega_cmd[4];        // Wheel space velocity command [rad/s]
-    double omega_cmd_x10[4];    // Wheel space velocity command [10^-1deg/s]
+    Eigen::Vector4f omega_cmd;  // Wheel space velocity command [rad/s]
+    int omega_cmd_x10[4];       // Wheel space velocity command [10^-1deg/s]
     int vout[4];                // Voltage output (PWM width : 0 - 4095)
-    double x_res[3];            // Workspace pose response calculated from velocity response [0:m, 1:m, 2:rad]
-    double x_res_[3];           // 
-    double x_res2[3];           // Workspace pose response calculated from velocity command [0:m, 1:m, 2:rad]
-    double dx_res[3];           // Workspace velocity response [0 : m/s, 1 : m/s, 2 : deg/s]
-    double dx_res_x10[3];       // Workspace velocity response [0 : 10^-1m/s, 1 : 10^-1m/s, 2 : 10^-2deg/s]
+    Eigen::Vector3f x_res;      // Workspace pose response calculated from velocity response [0:m, 1:m, 2:rad]
+    Eigen::Vector3f x_res_;     // 
+    Eigen::Vector3f x_res2;     // Workspace pose response calculated from velocity command [0:m, 1:m, 2:rad]
+    Eigen::Vector3f dx_res;     // Workspace velocity response [0 : m/s, 1 : m/s, 2 : deg/s]
     double x_cmd[3];            // Workspace pose command [0:m, 1:m, 2:rad]
-    double dx_cmd[3];           // Workspace velocity command [0 : m/s, 1 : m/s, 2 : rad/s]
-    double dx_rate_limit[3];    // Rate limit value in workspace [0 : m/20ms, 1 : m/20ms, 2 : rad/20ms]
-    double dx_cmd_rl[3];        // Workspace velocity command applied rate limit [0 : m/s, 1 : m/s, 2 : rad/s]
-    double dx_cmd_x10[3];       // Workspace velocity command x10ver [0 : 10^-1m/s, 1 : 10^-1m/s, 2 : 10^-2deg/s]
+    Eigen::Vector3f dx_cmd;     // Workspace velocity command [0 : m/s, 1 : m/s, 2 : rad/s]
+    Eigen::Vector3f dx_rate_limit;  // Rate limit value in workspace [0 : m/20ms, 1 : m/20ms, 2 : rad/20ms]
+    Eigen::Vector3f dx_cmd_rl;  // Workspace velocity command applied rate limit [0 : m/s, 1 : m/s, 2 : rad/s]
+    int dx_cmd_x10[3];          // Workspace velocity command x10ver [0 : 10^-1m/s, 1 : 10^-1m/s, 2 : 10^-2deg/s]
     double wheel_radius;        // Robot wheel radius [mm]
     double base_width;          // Robot wheel base width [mm]
     double base_length;         // Robot wheel base length (between front and rear wheel shaft) [mm]
-    // double J_inv[4][4] = [[1.0/(wheel_radius/1000.0),  1.0/(wheel_radius/1000.0),  ((base_width/1000.0) + (base_length/1000.0))/2.0/(wheel_radius/1000.0)]  // Inverse jacobian
-                          // ,[1.0/(wheel_radius/1000.0), -1.0/(wheel_radius/1000.0), -((base_width/1000.0) + (base_length/1000.0))/2.0/(wheel_radius/1000.0)]
-                          // ,[1.0/(wheel_radius/1000.0), -1.0/(wheel_radius/1000.0),  ((base_width/1000.0) + (base_length/1000.0))/2.0/(wheel_radius/1000.0)]
-                          // ,[1.0/(wheel_radius/1000.0),  1.0/(wheel_radius/1000.0), -((base_width/1000.0) + (base_length/1000.0))/2.0/(wheel_radius/1000.0)]])
-    // double J_inv_plus = np.dot(np.linalg.inv(np.dot(J_inv.transpose(), J_inv)), J_inv.transpose())
-    double x_ul;            // Upper limit of the Workspace
-    double x_ll;           // Lower limit of the Workspace
-    int ir_hex;                                      // Ir sensor date in hex
-    double ax;                                          // Acc x-axis
-    double ay;                                        // Acc y-axis
-    double az;                                         // Acc z-axis
-    double gc;               // Gyro constants to transform raw data to rad/s [rad/s]
-    double gx;                                         // Gyro x-axis [rad/s]
-    double gy;                                          // Gyro y-axis [rad/s]
-    int gz;                                          // Gyro z-axis [rad/s]
-    double gz_hpf;                                // Gyro z-axis applied HPF [rad/s]
-    double gz_hpf_tmp;                                // Temporary for HPF [rad/s]
-    double int_gz_hpf;                               // Integral of gz applied HPF [rad]
-    double g_gz;                                    // Cutoff angular frequency of HPF for gyro sensor [rad/s]
-    double mx;                                         // Mag x-axis
-    double my;                                         // Mag y-axis
-    double mz;                                      // Mag z-axis
-    double mx_lpf;                                     // Mag x-axis applied LPF
-    double my_lpf;                                     // Mag y-axis applied LPF
-    double mz_lpf;                                    // Mag z-axis applied LPF
-    double mx_offset;                              // Offset of Mag x-axis
-    double my_offset;                             // Offset of Mag y-axis
-    double mz_offset;                              // Offset of Mag y-axis
-    double mr_offset;                          // Radius of Mag x-y circle
-    double g_mag;                                  // Cutoff angular frequency of LPF for magnetosensor [rad/s]
-    double temp;                                      // Temperature
-    double us_dist[8];                              // Distance from ultra sonic sensor
-    double us_ok;                                   // Ultrasonic sensor is enabled or not
-    int ps2_button;                                // PS2 controller button state
-    int ps2_analogRX;                              // PS2 controller button state
-    int ps2_analogRY;                               // PS2 controller button state
-    int ps2_analogLX;                             // PS2 controller button state
-    int ps2_analogLY;                              // PS2 controller button state
-    int fdMEGA, fdFM, fdRM;                         // File Descriptor
-    struct termios oldtioMEGA, oldtioFM, oldtioRM;  // 
-    struct termios newtioMEGA, newtioFM, newtioRM;  // 
-    int conFM;                                      // Serial console connected to arduino motor controller
-    int conRM;                                     // Serial console connected to arduino motor controller
-    int conMEGA;                                     // Serial console connected to arduino motor controller
-    double bat_vol;                                   // Battery voltage
-    int bat_vol_x100;                              // Battery voltage x100 (raw data)
+    Eigen::MatrixXf J_inv;      // Inverse Jacobian work (space -> joint space)
+    Eigen::MatrixXf J_inv_plus; // Pseudo Inverse Jacobian (joint space -> work space)
+    double x_ul;                // Upper limit of the Workspace
+    double x_ll;                // Lower limit of the Workspace
+    int ir_hex;                 // Ir sensor date in hex
+    int ax;                     // Acc x-axis
+    int ay;                     // Acc y-axis
+    int az;                     // Acc z-axis
+    double gc;                  // Gyro constants to transform raw data to rad/s [rad/s]
+    double gx, gy, gz;          // Gyro x, y, z axis [rad/s]
+    double gz_hpf;              // Gyro z-axis applied HPF [rad/s]
+    double gz_hpf_tmp;          // Temporary for HPF [rad/s]
+    double int_gz_hpf;          // Integral of gz applied HPF [rad]
+    double g_gz;                // Cutoff angular frequency of HPF for gyro sensor [rad/s]
+    int mx, my, mz;             // Mag x-axis
+    double mx_lpf, my_lpf, mz_lpf;  // Mag x-axis applied LPF
+    double mx_offset;           // Offset of Mag x-axis
+    double my_offset;           // Offset of Mag y-axis
+    double mz_offset;           // Offset of Mag y-axis
+    double mr_offset;           // Radius of Mag x-y circle
+    double g_mag;               // Cutoff angular frequency of LPF for magnetosensor [rad/s]
+    int temp;                   // Temperature
+    int us_dist[8];             // Distance from ultra sonic sensor
+    int us_ok;                  // Ultrasonic sensor is enabled or not
+    int ps2_button;             // PS2 controller button state
+    int ps2_analogRX;           // PS2 controller button state
+    int ps2_analogRY;           // PS2 controller button state
+    int ps2_analogLX;           // PS2 controller button state
+    int ps2_analogLY;           // PS2 controller button state
+    int fdMEGA, fdFM, fdRM;     // File Descriptor
+    struct termios oldtioMEGA, oldtioFM, oldtioRM;  // The backup of termios
+    struct termios newtioMEGA, newtioFM, newtioRM;  // The settings in this time
+    double bat_vol;                                 // Battery voltage
+    int bat_vol_x100;                               // Battery voltage x100 (raw data)
     int ps2_ctrl;                                   // PS2 controller is enabled or not
-    int interval_MEGA;                           // Interval between samples
-    int interval_FM;                              // Interval between samples
-    int interval_RM;                               // Interval between samples
-    int interval;                                    // Interval
-    double pi; 
-    char before_nokoriMEGA[1024];
-    char before_nokoriFM[1024];
-    char before_nokoriRM[1024];
-    int pub10cnt;
+    int interval_MEGA, interval_FM, interval_RM;    // Interval between samples
     
     ros::NodeHandle nh;
   
@@ -206,6 +191,21 @@ class RoomSeekerLevel1{
     room_seeker_msgs::SensorState sensor_state_msg;
     room_seeker_msgs::VersionInfo version_info_msg;
     
+    // Service client
+    ros::ServiceClient client_start_rplidar;
+    ros::ServiceClient client_stop_rplidar;
+    
+    // Serial settings
+    std::string serDevNameMEGA, serDevNameFM, serDevNameRM;
+    int serBaudrateMEGA, serBaudrateFM, serBaudrateRM;
+    
+    // Output file settings
+    FILE *fp_log, *fp_data;
+    char preffix[64];
+    char suffix[64];
+    std::string logFileDir;
+    std::string dataFileDir;
+    
     // Power control
     double dt;                              // Sampling time of the motor controller
     double ros_rate;                        // Set value for rospy.Rate()
@@ -219,10 +219,12 @@ class RoomSeekerLevel1{
     RoomSeekerLevel1();
     ~RoomSeekerLevel1();
     
-    void process_one_step(void);
+    int startRoomSeekerLevel1(void);
     
     bool open_logfile(void);
-    bool open_datafile(char *strCsvName);
+    void write_log(FILE *fp, const char *str);
+    bool open_datafile(void);
+    void write_data(void);
     
     void print_state(void);
     void print_sensor(void);
@@ -240,7 +242,6 @@ class RoomSeekerLevel1{
     void continue_control_ps2(void);
     void stop_control(void);
     void control_command(void);
-    void data_output(void);
     
     void initMEGA(void);
     void initFM(void);
